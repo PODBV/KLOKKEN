@@ -1,0 +1,62 @@
+:root {
+  --blauw: #1f3864; --tekst: #1d2433; --grijs: #5b6476; --lijn: #d9dee8; --vlak: #f4f6fa; --wit: #fff;
+  --in: #1e7d45; --uit: #b3261e; --flits: #e6f4ea; --waarschuwing: #fdecea;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--vlak); color: var(--tekst); }
+.balk { background: var(--blauw); color: #fff; padding: 12px 16px; font-weight: 600; }
+.balk a { color: #fff; }
+main { padding: 16px; margin: 0 auto; }
+.smal { max-width: 460px; }
+.breed { max-width: 1200px; }
+.kaart { background: var(--wit); border: 1px solid var(--lijn); border-radius: 14px; padding: 22px; margin-bottom: 16px; }
+h1 { font-size: 1.6rem; margin: 0 0 6px; }
+h2 { font-size: 1.15rem; margin: 0 0 12px; }
+.sub { color: var(--grijs); line-height: 1.5; margin: 0 0 20px; }
+.knop { display: flex; align-items: center; justify-content: center; gap: 10px; width: 100%; border: 0; border-radius: 10px;
+  padding: 14px; font-size: 1rem; font-weight: 600; cursor: pointer; margin-bottom: 10px; }
+.knop:disabled { opacity: .5; cursor: default; }
+.knop-groot { font-size: 1.5rem; padding: 34px 14px; color: #fff; }
+.knop-in { background: var(--in); }
+.knop-uit { background: var(--uit); }
+.knop-licht { background: var(--wit); border: 1px solid var(--lijn); color: var(--tekst); }
+.knop-blauw { background: var(--blauw); color: #fff; }
+.knop-klein { width: auto; padding: 9px 14px; font-size: .9rem; margin: 0; }
+.logo { display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: var(--vlak); font-weight: 700; }
+.mail-login { margin-top: 8px; color: var(--grijs); }
+.mail-login summary { cursor: pointer; padding: 6px 0; }
+form#mail-form { display: flex; gap: 8px; margin-top: 8px; }
+input, select { font: inherit; padding: 9px 10px; border: 1px solid var(--lijn); border-radius: 8px; min-width: 0; background: var(--wit); color: var(--tekst); }
+form#mail-form input { flex: 1; }
+.klein { font-size: .85rem; color: var(--grijs); }
+.melding { min-height: 1.2em; color: var(--uit); font-weight: 500; }
+.flits { background: var(--flits); color: var(--in); font-weight: 700; padding: 12px 14px; border-radius: 10px; margin-bottom: 16px; font-size: 1.1rem; }
+.voet { color: var(--grijs); font-size: .9rem; text-align: center; margin: 14px 0 0; }
+code { background: var(--vlak); padding: 1px 5px; border-radius: 4px; }
+
+/* Beheer */
+.tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 14px; }
+.tab { background: var(--wit); border: 1px solid var(--lijn); border-radius: 999px; padding: 8px 14px; cursor: pointer; font: inherit; color: var(--tekst); }
+.tab.actief { background: var(--blauw); border-color: var(--blauw); color: #fff; }
+.rij { display: flex; gap: 10px; flex-wrap: wrap; align-items: end; margin-bottom: 14px; }
+.rij label { display: flex; flex-direction: column; gap: 4px; font-size: .85rem; color: var(--grijs); }
+.tabel-wrap { overflow-x: auto; border: 1px solid var(--lijn); border-radius: 10px; margin-bottom: 18px; }
+table { border-collapse: collapse; width: 100%; font-size: .88rem; background: var(--wit); }
+th, td { padding: 7px 10px; border-bottom: 1px solid var(--lijn); text-align: left; white-space: nowrap; }
+th { background: var(--vlak); position: sticky; top: 0; font-weight: 600; }
+td.getal, th.getal { text-align: right; font-variant-numeric: tabular-nums; }
+tr.weekend td { background: #fafbfd; color: var(--grijs); }
+tr.totaal td { font-weight: 700; background: var(--vlak); }
+.waarschuwingen { background: var(--waarschuwing); border-radius: 10px; padding: 10px 14px; margin-bottom: 16px; }
+.waarschuwingen ul { margin: 6px 0 0; padding-left: 18px; }
+.link-knop { background: none; border: 0; color: var(--uit); cursor: pointer; font: inherit; text-decoration: underline; padding: 0; }
+#qr-print { text-align: center; }
+#qr-print svg { width: 300px; height: 300px; }
+@media print {
+  body { background: #fff; }
+  .balk, .tabs, .geen-print { display: none !important; }
+  #qr-print { border: 0; }
+  #qr-print svg { width: 12cm; height: 12cm; }
+  #qr-print h1 { font-size: 2.2rem; }
+}

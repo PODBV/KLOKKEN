@@ -1,0 +1,57 @@
+rules_version = '2';
+
+// Beveiliging van de klok-app. Plak dit in Firebase > Firestore Database > Regels.
+//  - Een werknemer kan alleen voor zichzelf klokken, met de tijd van de server.
+//  - Een werknemer kan geen registraties wijzigen of verwijderen.
+//  - Alleen beheerders zien alle uren en beheren werknemers en correcties.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function ingelogd() {
+      return request.auth != null && request.auth.token.email is string
+        // Google en e-maillink leveren een geverifieerd adres. Microsoft-login is
+        // in de app beperkt tot jullie eigen organisatie (tenant).
+        && (request.auth.token.email_verified == true
+            || request.auth.token.firebase.sign_in_provider == 'microsoft.com');
+    }
+    function mijnEmail() { return request.auth.token.email.lower(); }
+    function isBeheerder() {
+      return ingelogd() && exists(/databases/$(database)/documents/beheerders/$(mijnEmail()));
+    }
+    function werknemer() { return get(/databases/$(database)/documents/werknemers/$(mijnEmail())); }
+    function isActieveWerknemer() {
+      return ingelogd()
+        && exists(/databases/$(database)/documents/werknemers/$(mijnEmail()))
+        && werknemer().data.actief == true;
+    }
+
+    match /werknemers/{email} {
+      allow read: if isBeheerder() || (ingelogd() && email == mijnEmail());
+      allow write: if isBeheerder();
+    }
+
+    match /beheerders/{email} {
+      allow read: if isBeheerder() || (ingelogd() && email == mijnEmail());
+      allow write: if isBeheerder();
+    }
+
+    match /registraties/{id} {
+      allow read: if isBeheerder() || (ingelogd() && resource.data.email == mijnEmail());
+
+      // Klokken door de werknemer zelf.
+      allow create: if isActieveWerknemer()
+        && request.resource.data.keys().hasOnly(['email', 'naam', 'actie', 'tijd', 'datum', 'bron', 'locatie'])
+        && request.resource.data.keys().hasAll(['email', 'naam', 'actie', 'tijd', 'datum', 'bron'])
+        && request.resource.data.email == mijnEmail()
+        && request.resource.data.naam == werknemer().data.naam
+        && request.resource.data.actie in ['In', 'Uit']
+        && request.resource.data.tijd == request.time
+        && request.resource.data.datum is string && request.resource.data.datum.size() == 10
+        && request.resource.data.bron == 'scan'
+        && (!('locatie' in request.resource.data) || request.resource.data.locatie is map);
+
+      // Correcties (vergeten uitklok e.d.) door een beheerder.
+      allow create, update, delete: if isBeheerder();
+    }
+  }
+}
