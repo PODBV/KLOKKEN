@@ -79,7 +79,7 @@ async function klokScherm(werknemer, flits = "") {
 }
 
 if (nietIngesteld) {
-  bericht("Nog niet ingesteld", "Vul eerst de Firebase-gegevens in <code>js/config.js</code> in (zie HANDLEIDING.md).");
+  bericht("Nog niet ingesteld", "Vul eerst de Firebase-gegevens in <code>config.js</code> in (zie HANDLEIDING.md).");
 } else {
   bericht("Even geduld", "Laden…");
   rondEmailLinkAf().catch((e) => bericht("Inloggen mislukt", esc(e?.message || e)));

@@ -43,21 +43,21 @@ Sla deze stap over als iedereen met Google of e-maillink inlogt.
 3. Noteer op de overzichtspagina de **Toepassings-id (client)** en de **Map-id (tenant)**.
 4. **Certificaten en geheimen > Nieuw clientgeheim**, met een geldigheid van 24 maanden. Kopieer de **Waarde**.
 5. Terug in Firebase, bij de Microsoft-provider: vul de toepassings-id en het geheim in, schakel in en sla op.
-6. Vul de tenant-id in `js/config.js` in bij `MICROSOFT_TENANT` (tussen aanhalingstekens).
+6. Vul de tenant-id in `config.js` in bij `MICROSOFT_TENANT` (tussen aanhalingstekens).
 
 Zet in je agenda: het clientgeheim verloopt na 24 maanden. Maak dan een nieuw geheim en vul het in Firebase in.
 
 ## Stap 5. App-gegevens invullen
 
 1. Firebase: tandwiel > **Projectinstellingen > Algemeen > Jouw apps > Web (`</>`)**. Bijnaam `klok`, **zonder** Firebase Hosting, en registreren.
-2. Je ziet een blok `firebaseConfig`. Neem `apiKey`, `authDomain`, `projectId` en `appId` over in `js/config.js`.
+2. Je ziet een blok `firebaseConfig`. Neem `apiKey`, `authDomain`, `projectId` en `appId` over in `config.js`.
 
 ## Stap 6. Website op GitHub Pages zetten
 
 1. Maak een account op https://github.com (gratis).
 2. Klik **New repository**, naam `klok`, **Public**, en **Create repository**.
    (De code is dan openbaar. Dat is geen probleem: er staan geen wachtwoorden in, en de gegevens zitten beveiligd in Firebase.)
-3. Klik **uploading an existing file** en sleep **de inhoud** van de map `klok-app` erin (index.html, beheer.html, de mappen css en js enz.). Klik dan **Commit changes**.
+3. Klik **uploading an existing file** en selecteer **alle bestanden** uit de map `klok-app` (alles staat in één map, zonder submappen) en sleep ze erin. Klik dan **Commit changes**.
 4. **Settings > Pages**: Source **Deploy from a branch**, branch **main**, map **/ (root)**, en **Save**.
 5. Na een minuut staat de app op `https://<jouw-github-naam>.github.io/klok/`.
 
@@ -90,7 +90,7 @@ Tip voor werknemers: scan met de gewone camera-app. Die opent de link in Safari 
 - Iedere werknemer logt in met een eigen account. De database accepteert alleen een klok **voor het eigen e-mailadres**, met **de tijd van de server** (niet die van de telefoon).
 - Werknemers kunnen niets wijzigen of verwijderen en zien alleen hun eigen klokken.
 - Alleen e-mailadressen die jij bij Werknemers hebt toegevoegd en die op "Mag klokken" staan, kunnen klokken.
-- Optioneel: zet in `js/config.js` bij `KANTOOR` de coördinaten van het kantoor. Dan kan alleen geklokt worden binnen die straal. De app slaat alleen de afstand op, niet de locatie zelf. Deze check gebeurt op de telefoon, dus iemand met technische kennis kan hem omzeilen. Zie het als drempel, niet als waterdichte controle.
+- Optioneel: zet in `config.js` bij `KANTOOR` de coördinaten van het kantoor. Dan kan alleen geklokt worden binnen die straal. De app slaat alleen de afstand op, niet de locatie zelf. Deze check gebeurt op de telefoon, dus iemand met technische kennis kan hem omzeilen. Zie het als drempel, niet als waterdichte controle.
 
 ## Privacy (AVG)
 

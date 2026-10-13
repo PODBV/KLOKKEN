@@ -295,7 +295,7 @@ function toon() {
 
 // ---------- start ----------
 if (nietIngesteld) {
-  el.innerHTML = `<div class="kaart smal"><h1>Nog niet ingesteld</h1><p class="sub">Vul eerst de Firebase-gegevens in <code>js/config.js</code> in (zie HANDLEIDING.md).</p></div>`;
+  el.innerHTML = `<div class="kaart smal"><h1>Nog niet ingesteld</h1><p class="sub">Vul eerst de Firebase-gegevens in <code>config.js</code> in (zie HANDLEIDING.md).</p></div>`;
 } else {
   el.innerHTML = `<div class="kaart smal"><p>Laden…</p></div>`;
   rondEmailLinkAf().catch((e) => alert(e.message));
