@@ -353,6 +353,17 @@ function nieuweCode() {
   return btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
+/** Haalt breedte- en lengtegraad uit "51.8853, 4.3108" of uit een Google Maps-link. */
+function leesCoordinaten(tekst) {
+  let t = (tekst || "").trim();
+  try { t = decodeURIComponent(t); } catch { /* geen geldige link-codering */ }
+  const m = t.match(/!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/) || t.match(/@(-?\d+\.\d+),\s*(-?\d+\.\d+)/)
+    || t.match(/(-?\d{1,2}\.\d+)\s*[,;]\s*(-?\d{1,3}\.\d+)/);
+  if (!m) return null;
+  const lat = Number(m[1]), lng = Number(m[2]);
+  return Math.abs(lat) <= 90 && Math.abs(lng) <= 180 ? { lat, lng } : null;
+}
+
 function mijnLocatie() {
   return new Promise((ok, fout) => {
     if (!navigator.geolocation) return fout(new Error("Deze browser geeft geen locatie door."));
@@ -384,14 +395,21 @@ function toonQr(box) {
     </div>
     <div class="kaart geen-print">
       <h2>Alleen klokken op kantoor (locatiecheck)</h2>
-      ${k ? `<p>✓ Aan: telefoons kunnen alleen klokken binnen <b>${k.straalMeter} meter</b> van de vastgelegde kantoorlocatie.</p>`
+      ${k ? `<p>✓ Aan: telefoons kunnen alleen klokken binnen <b>${k.straalMeter} meter</b> van de vastgelegde kantoorlocatie
+          (<a href="https://www.google.com/maps?q=${k.lat},${k.lng}" target="_blank" rel="noopener">bekijk op de kaart</a>).</p>`
         : `<p><b>Uit.</b> Iemand met een foto van de QR-code kan nu ook van buiten kantoor klokken. Zet de locatiecheck aan als je op kantoor bent.</p>`}
       <div class="rij">
         <label>Straal in meters <input type="number" id="straal" min="50" max="2000" step="10" value="${k?.straalMeter || 150}" style="width:120px"></label>
         <button class="knop knop-blauw knop-klein" id="kantoor-zet">${k ? "Opnieuw vastleggen op mijn huidige plek" : "Aanzetten: mijn huidige plek is kantoor"}</button>
         ${k ? `<button class="knop knop-licht knop-klein" id="kantoor-uit">Uitzetten</button>` : ""}
       </div>
-      <p class="klein">Doe dit op je telefoon of laptop terwijl je op kantoor bent. Werknemers moeten bij het klokken hun locatie delen;
+      <div class="rij">
+        <label style="flex:1;min-width:240px">Of plak coördinaten of een Google Maps-link
+          <input id="kantoor-plak" placeholder="bijv. 51.8853, 4.3108"></label>
+        <button class="knop knop-licht knop-klein" id="kantoor-plak-zet">Vastleggen</button>
+      </div>
+      <p class="klein">Coördinaten vind je in Google Maps: klik met de rechtermuisknop op jullie gebouw en klik op de bovenste regel met de cijfers (die worden dan gekopieerd).
+        Of doe dit op je telefoon of laptop terwijl je op kantoor bent. Werknemers moeten bij het klokken hun locatie delen;
         de app bewaart alleen de afstand tot kantoor, niet de locatie zelf.</p>
       <p class="melding" id="kantoor-melding"></p>
     </div>
@@ -415,6 +433,15 @@ function toonQr(box) {
       const c = await mijnLocatie();
       if (c.accuracy > 200 && !confirm(`De locatie is maar op ongeveer ${Math.round(c.accuracy)} meter nauwkeurig. Toch vastleggen?`)) { km.textContent = ""; return; }
       await setDoc(doc(db, "instellingen", "kantoor"), { lat: c.latitude, lng: c.longitude, straalMeter: straal, door: mijnEmail(), sinds: Timestamp.now() });
+      await laadDeurschermen(); toon();
+    } catch (e) { km.textContent = e.message; }
+  };
+  box.querySelector("#kantoor-plak-zet").onclick = async () => {
+    const straal = Math.max(50, Math.min(2000, Number(box.querySelector("#straal").value) || 150));
+    const pos = leesCoordinaten(box.querySelector("#kantoor-plak").value);
+    if (!pos) { km.textContent = "Geen coördinaten gevonden. Plak iets als 51.8853, 4.3108 of een Google Maps-link met een @ erin."; return; }
+    try {
+      await setDoc(doc(db, "instellingen", "kantoor"), { lat: pos.lat, lng: pos.lng, straalMeter: straal, door: mijnEmail(), sinds: Timestamp.now() });
       await laadDeurschermen(); toon();
     } catch (e) { km.textContent = e.message; }
   };

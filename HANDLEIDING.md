@@ -70,7 +70,7 @@ Firebase: **Authentication > Instellingen > Geautoriseerde domeinen > Domein toe
 2. **Werknemers**: voeg iedere werknemer toe. Een naam is genoeg; een e-mailadres is niet nodig.
 3. Klik bij de werknemer op **Koppel-QR**. Laat de werknemer die code één keer scannen met de gewone camera van zijn eigen telefoon, of stuur de link via **Link kopiëren** in een persoonlijk appje. De telefoon is dan gekoppeld ("Hoi Lois").
 4. **QR bij de deur**: klik **QR-code maken**, dan **Printen**, en hang de QR-code bij de deur.
-5. Zet op hetzelfde tabblad de **locatiecheck** aan terwijl je op kantoor bent: klik **Aanzetten: mijn huidige plek is kantoor**. Telefoons kunnen dan alleen binnen de straal (standaard 150 meter) klokken.
+5. Zet op hetzelfde tabblad de **locatiecheck** aan terwijl je op kantoor bent: klik **Aanzetten: mijn huidige plek is kantoor**. Lukt dat niet (geen toestemming voor locatie)? Klik in Google Maps met de rechtermuisknop op het gebouw, klik op de cijfers bovenaan om ze te kopiëren, plak ze in het veld eronder en klik **Vastleggen**. Telefoons kunnen dan alleen binnen de straal (standaard 150 meter) klokken.
 6. Vanaf dan: QR-code bij de deur scannen, de app herkent de telefoon, en één tik op **Inklokken** of **Uitklokken**.
    Zonder verse scan laat de telefoon geen knop zien. De pagina later opnieuw openen werkt dus niet.
 
