@@ -1,4 +1,4 @@
-// Beheerpagina: uren bekijken, Excel downloaden, werknemers en correcties beheren, QR-code printen.
+// Beheerpagina: uren bekijken, Excel downloaden, werknemers en correcties beheren, deurscherm koppelen.
 import {
   auth, db, nietIngesteld, onAuthStateChanged, collection, doc, getDoc, getDocs,
   addDoc, setDoc, updateDoc, deleteDoc, query, where, Timestamp,
@@ -28,6 +28,12 @@ async function laadWerknemers() {
   staat.werknemers = w.docs.map((d) => ({ email: d.id, ...d.data() })).sort((a, b) => a.naam.localeCompare(b.naam));
   staat.beheerders = new Set(b.docs.map((d) => d.id));
   staat.apparaten = a.docs.map((d) => ({ uid: d.id, ...d.data() }));
+}
+
+async function laadDeurschermen() {
+  const [s, d] = await Promise.all([getDocs(collection(db, "deurschermen")), getDocs(collection(db, "deur"))]);
+  const codes = new Map(d.docs.map((x) => [x.id, x.data()]));
+  staat.deurschermen = s.docs.map((x) => ({ uid: x.id, ...x.data(), laatst: codes.get(x.id)?.sinds?.toDate() }));
 }
 
 const klokUrl = () => new URL("index.html", location.href.split("?")[0].split("#")[0]).href;
@@ -96,15 +102,16 @@ function overzicht() {
 function kader() {
   el.innerHTML = `
     <nav class="tabs">
-      ${[["uren", "Uren"], ["registraties", "Registraties & correcties"], ["werknemers", "Werknemers"], ["qr", "QR-code"]]
+      ${[["uren", "Uren"], ["registraties", "Registraties & correcties"], ["werknemers", "Werknemers"], ["qr", "Deurscherm"]]
         .map(([k, t]) => `<button class="tab ${staat.tab === k ? "actief" : ""}" data-tab="${k}">${t}</button>`).join("")}
     </nav>
     <div id="inhoud"></div>`;
   el.querySelectorAll(".tab").forEach((b) => b.onclick = async () => {
-    staat.tab = b.dataset.tab; staat.koppel = null;
+    staat.tab = b.dataset.tab; staat.koppel = null; staat.deurKoppel = null;
     // Steeds de nieuwste gegevens tonen.
     if (staat.tab === "uren" || staat.tab === "registraties") await laadRegistraties();
     if (staat.tab === "werknemers") await laadWerknemers();
+    if (staat.tab === "qr") await laadDeurschermen();
     toon();
   });
 }
@@ -337,17 +344,62 @@ function toonKoppel(box) {
   };
 }
 
+const deurUrl = () => new URL("deur.html", location.href.split("?")[0].split("#")[0]).href;
+
+/** Het deurscherm: een tablet bij de deur met een QR-code die elke 30 seconden wisselt. */
 function toonQr(box) {
-  const url = klokUrl();
+  const schermen = staat.deurschermen || [];
+  const k = staat.deurKoppel;
   box.innerHTML = `
-    <div class="kaart" id="qr-print">
-      <h1>Scan om in of uit te klokken</h1>
-      <p class="sub">${esc(BEDRIJFSNAAM)}</p>
-      ${qrSvg(url)}
-      <p class="klein">${esc(url)}</p>
-      <button class="knop knop-blauw geen-print" id="print" style="max-width:300px;margin:16px auto 0">Printen</button>
-    </div>`;
-  box.querySelector("#print").onclick = () => window.print();
+    <div class="kaart">
+      <h2>Deurscherm</h2>
+      <p class="sub">Werknemers klokken alleen met de QR-code op een tablet (of oude telefoon) bij de deur. Die code wisselt elke 30 seconden,
+        dus een foto of bewaarde link werkt na een minuut niet meer. Hang de tablet aan de oplader en laat <b>deur.html</b> openstaan.</p>
+      ${schermen.length ? `<div class="tabel-wrap"><table>
+        <thead><tr><th>Naam</th><th>Gekoppeld sinds</th><th>Status</th><th></th></tr></thead>
+        <tbody>${schermen.map((d) => `<tr><td>${esc(d.naam)}</td><td>${d.sinds ? nlDatum(datumVan(d.sinds.toDate())) : ""}</td>
+          <td>${d.laatst && Date.now() - d.laatst < 120000 ? "✓ aan" : `<span style="color:var(--uit)">uit${d.laatst ? ` sinds ${nlDatum(datumVan(d.laatst))} ${tijdTekst(d.laatst)}` : ""}</span>`}</td>
+          <td><button class="link-knop" data-ontkoppel-deur="${esc(d.uid)}">ontkoppelen</button></td></tr>`).join("")}</tbody></table></div>`
+        : `<p><b>Nog geen deurscherm gekoppeld.</b> Zolang dat zo is, kan niemand klokken.</p>`}
+      <div class="rij">
+        <label>Naam van het scherm <input id="deur-naam" value="${schermen.length ? "" : "Voordeur"}" placeholder="bijv. Voordeur"></label>
+        <button class="knop knop-blauw knop-klein" id="deur-koppel">Deurscherm koppelen</button>
+        <button class="knop knop-licht knop-klein" id="deur-ververs">Status verversen</button>
+      </div>
+      <p class="melding" id="deur-melding"></p>
+    </div>
+    ${k ? `<div class="kaart" id="qr-print">
+      <h1>Koppel ${esc(k.naam)}</h1>
+      <p class="sub">Scan deze code met de camera van de <b>tablet</b> die bij de deur komt, of open de link daar in de browser.<br>
+        Eenmalig te gebruiken en 7 dagen geldig.</p>
+      ${qrSvg(k.url)}
+      <div class="rij geen-print" style="justify-content:center">
+        <button class="knop knop-licht knop-klein" id="deur-kopieer">Link kopiëren</button>
+      </div>
+    </div>` : ""}`;
+  const melding = box.querySelector("#deur-melding");
+  box.querySelector("#deur-koppel").onclick = async () => {
+    const naam = box.querySelector("#deur-naam").value.trim();
+    if (!naam) { melding.textContent = "Geef het scherm een naam."; return; }
+    const bytes = crypto.getRandomValues(new Uint8Array(18));
+    const code = btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+    try {
+      await setDoc(doc(db, "koppelcodes", code), { soort: "deur", email: "", naam, gebruikt: false, aangemaakt: Timestamp.now(), door: mijnEmail() });
+      staat.deurKoppel = { naam, url: `${deurUrl()}?koppel=${code}` };
+      toon();
+    } catch (e) { melding.textContent = e.message; }
+  };
+  box.querySelector("#deur-ververs").onclick = async () => { staat.deurKoppel = null; await laadDeurschermen(); toon(); };
+  box.querySelector("#deur-kopieer")?.addEventListener("click", async () => {
+    try { await navigator.clipboard.writeText(k.url); melding.textContent = "Link gekopieerd."; }
+    catch { prompt("Kopieer deze link:", k.url); }
+  });
+  box.querySelectorAll("[data-ontkoppel-deur]").forEach((b) => b.onclick = async () => {
+    if (!confirm("Dit deurscherm ontkoppelen? De QR-code erop werkt dan niet meer.")) return;
+    const uid = b.dataset.ontkoppelDeur;
+    await Promise.all([deleteDoc(doc(db, "deurschermen", uid)), deleteDoc(doc(db, "deur", uid))]);
+    await laadDeurschermen(); toon();
+  });
 }
 
 function toon() {

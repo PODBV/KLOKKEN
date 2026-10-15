@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#1f3864">
+  <title>Deurscherm</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
+  <style>
+    body { background: #fff; }
+    #app { max-width: none; min-height: 100vh; display: grid; place-items: center; text-align: center; padding: 16px; }
+    .deur h1 { font-size: clamp(1.6rem, 5vw, 3rem); margin: 0 0 6px; }
+    .deur .sub { font-size: clamp(1rem, 2.5vw, 1.4rem); margin-bottom: 16px; }
+    .deur svg { width: min(78vw, 62vh); height: min(78vw, 62vh); }
+    .balkje { height: 6px; background: var(--lijn); border-radius: 3px; overflow: hidden; width: min(78vw, 62vh); margin: 14px auto 0; }
+    .balkje div { height: 100%; background: var(--blauw); transition: width 1s linear; }
+    .status { color: var(--grijs); font-size: .9rem; margin-top: 10px; min-height: 1.2em; }
+    .status.fout { color: var(--uit); font-weight: 600; }
+  </style>
+</head>
+<body>
+  <main id="app"></main>
+  <script type="module" src="deur.js"></script>
+</body>
+</html>

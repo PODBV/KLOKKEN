@@ -4,6 +4,8 @@ rules_version = '2';
 //  - Een werknemer kan alleen voor zichzelf klokken, met de tijd van de server.
 //    "Zichzelf" is de werknemer aan wie de telefoon is gekoppeld (persoonlijke
 //    koppel-QR, eenmalig te gebruiken) of het account waarmee is ingelogd.
+//  - Klokken kan alleen met de wisselende QR-code van het deurscherm (tablet bij
+//    de deur). Die code is na ongeveer een minuut niet meer geldig.
 //  - Een werknemer kan geen registraties wijzigen of verwijderen.
 //  - Alleen beheerders zien alle uren en beheren werknemers, koppelingen en correcties.
 service cloud.firestore {
@@ -26,14 +28,29 @@ service cloud.firestore {
     function apparaatEmail() { return get(apparaatPad()).data.email; }
     function werknemerPad(e) { return /databases/$(database)/documents/werknemers/$(e); }
     function codePad(c) { return /databases/$(database)/documents/koppelcodes/$(c); }
+    function deurschermPad() { return /databases/$(database)/documents/deurschermen/$(request.auth.uid); }
+    function isDeurscherm() { return request.auth != null && exists(deurschermPad()); }
+    function deurPad(s) { return /databases/$(database)/documents/deur/$(s); }
+
+    // De code uit de QR-code van deurscherm s: de huidige of de vorige, en het
+    // scherm moet de afgelopen 90 seconden nog een nieuwe code hebben gemaakt.
+    function geldigeDeurcode(s, c) {
+      let deur = get(deurPad(s)).data;
+      return c is string && c.size() >= 16
+        && (c == deur.code || c == deur.vorige)
+        && request.time < deur.sinds + duration.value(90, 's');
+    }
 
     // Een geldige klok voor werknemer e, door die werknemer zelf.
     function geldigeKlok(e) {
       let d = request.resource.data;
       return exists(werknemerPad(e))
         && get(werknemerPad(e)).data.actief == true
-        && d.keys().hasOnly(['email', 'naam', 'actie', 'tijd', 'datum', 'bron', 'locatie'])
-        && d.keys().hasAll(['email', 'naam', 'actie', 'tijd', 'datum', 'bron'])
+        && d.keys().hasOnly(['email', 'naam', 'actie', 'tijd', 'datum', 'bron', 'scherm', 'deur', 'locatie'])
+        && d.keys().hasAll(['email', 'naam', 'actie', 'tijd', 'datum', 'bron', 'scherm', 'deur'])
+        && d.scherm is string && exists(deurPad(d.scherm))
+        && exists(/databases/$(database)/documents/deurschermen/$(d.scherm))
+        && geldigeDeurcode(d.scherm, d.deur)
         && d.email == e
         && d.naam == get(werknemerPad(e)).data.naam
         && d.actie in ['In', 'Uit']
@@ -66,7 +83,8 @@ service cloud.firestore {
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['gebruikt', 'gebruiktDoor'])
         && request.resource.data.gebruikt == true
         && request.resource.data.gebruiktDoor == request.auth.uid
-        && getAfter(apparaatPad()).data.code == code);
+        && ((existsAfter(apparaatPad()) && getAfter(apparaatPad()).data.code == code)
+            || (existsAfter(deurschermPad()) && getAfter(deurschermPad()).data.code == code)));
     }
 
     // Een telefoon die aan een werknemer is gekoppeld (één document per telefoon).
@@ -77,6 +95,7 @@ service cloud.firestore {
         && request.resource.data.keys().hasOnly(['email', 'naam', 'code', 'sinds'])
         && request.resource.data.code is string
         && exists(codePad(request.resource.data.code))
+        && get(codePad(request.resource.data.code)).data.get('soort', 'werknemer') == 'werknemer'
         && get(codePad(request.resource.data.code)).data.gebruikt == false
         && request.time < get(codePad(request.resource.data.code)).data.aangemaakt + duration.value(7, 'd')
         && request.resource.data.email == get(codePad(request.resource.data.code)).data.email
@@ -85,12 +104,40 @@ service cloud.firestore {
         && getAfter(codePad(request.resource.data.code)).data.gebruikt == true;
     }
 
+    // Het deurscherm (tablet bij de deur), één keer gekoppeld met een koppelcode
+    // van soort 'deur' die de beheerder maakt.
+    match /deurschermen/{uid} {
+      allow get: if isBeheerder() || (request.auth != null && request.auth.uid == uid);
+      allow list, delete: if isBeheerder();
+      allow create: if request.auth != null && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['naam', 'code', 'sinds'])
+        && request.resource.data.code is string
+        && exists(codePad(request.resource.data.code))
+        && get(codePad(request.resource.data.code)).data.get('soort', 'werknemer') == 'deur'
+        && get(codePad(request.resource.data.code)).data.gebruikt == false
+        && request.time < get(codePad(request.resource.data.code)).data.aangemaakt + duration.value(7, 'd')
+        && request.resource.data.naam == get(codePad(request.resource.data.code)).data.naam
+        && request.resource.data.sinds == request.time
+        && getAfter(codePad(request.resource.data.code)).data.gebruikt == true;
+    }
+
+    // De QR-code die het deurscherm nu toont. Alleen dat scherm zelf zet een nieuwe code.
+    match /deur/{uid} {
+      allow get: if isBeheerder() || (request.auth != null && request.auth.uid == uid);
+      allow list, delete: if isBeheerder();
+      allow create, update: if request.auth != null && request.auth.uid == uid && isDeurscherm()
+        && request.resource.data.keys().hasOnly(['code', 'vorige', 'sinds'])
+        && request.resource.data.code is string && request.resource.data.code.size() >= 16
+        && request.resource.data.vorige is string
+        && request.resource.data.sinds == request.time;
+    }
+
     match /registraties/{id} {
       allow read: if isBeheerder()
         || (ingelogd() && resource.data.email == mijnEmail())
         || (isGekoppeld() && resource.data.email == apparaatEmail());
 
-      // Klokken via een gekoppelde telefoon of een eigen account.
+      // Klokken via een gekoppelde telefoon of een eigen account, met de deur-QR.
       allow create: if isGekoppeld() && geldigeKlok(apparaatEmail());
       allow create: if ingelogd() && geldigeKlok(mijnEmail());
 
