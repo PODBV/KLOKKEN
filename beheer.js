@@ -5,7 +5,8 @@ import {
 } from "./firebase.js";
 import { toonLogin, rondEmailLinkAf, mijnEmail, uitloggen } from "./login.js";
 import { BEDRIJFSNAAM } from "./config.js";
-import { datumVan, tijdTekst, urenTekst, berekenDagen, isoWeek, datumsTussen, esc } from "./uren.js";
+import { datumVan, tijdTekst, urenTekst, berekenDagen, isoWeek, datumsTussen, esc, amsterdamTijd } from "./uren.js";
+import { PAUZE } from "./config.js";
 
 const el = document.getElementById("app");
 document.getElementById("bedrijf").textContent = BEDRIJFSNAAM;
@@ -13,7 +14,18 @@ const DAGEN = ["zo", "ma", "di", "wo", "do", "vr", "za"];
 const MAANDEN = ["jan", "feb", "mrt", "apr", "mei", "jun", "jul", "aug", "sep", "okt", "nov", "dec"];
 
 const nlDatum = (d) => `${d.slice(8)}-${d.slice(5, 7)}-${d.slice(0, 4)}`;
-const staat = { tab: "uren", werknemers: [], beheerders: new Set(), apparaten: [], regs: [], van: null, tot: null, koppel: null };
+/** "5-10-2026" of "05/10/2026" naar "2026-10-05"; null als het geen datum is. */
+function leesDatum(t) {
+  const m = String(t).trim().match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})$/);
+  if (!m) return null;
+  const iso = `${m[3]}-${m[2].padStart(2, "0")}-${m[1].padStart(2, "0")}`;
+  const d = new Date(iso + "T00:00:00Z");
+  return !isNaN(d) && d.toISOString().slice(0, 10) === iso ? iso : null;
+}
+const datumVeld = (id, waarde) => `<input id="${id}" value="${nlDatum(waarde)}" placeholder="dd-mm-jjjj" inputmode="numeric" style="width:120px">`;
+const staat = { tab: "uren", werknemers: [], beheerders: new Set(), apparaten: [], regs: [], van: null, tot: null, persoon: "", koppel: null };
+/** Registraties in de gekozen periode, eventueel alleen van de gekozen persoon. */
+const regsGekozen = () => (staat.persoon ? staat.regs.filter((r) => r.email === staat.persoon) : staat.regs);
 
 // ---------- gegevens ----------
 function standaardPeriode() {
@@ -74,16 +86,17 @@ async function laadRegistraties() {
 
 /** Werknemers in de kolommen: iedereen die actief is of in de periode geklokt heeft. */
 function kolommen() {
-  const metData = new Set(staat.regs.map((r) => r.email));
-  const lijst = staat.werknemers.filter((w) => w.actief || metData.has(w.email));
-  for (const r of staat.regs) {
+  const regs = regsGekozen();
+  const metData = new Set(regs.map((r) => r.email));
+  const lijst = staat.werknemers.filter((w) => (staat.persoon ? w.email === staat.persoon : w.actief || metData.has(w.email)));
+  for (const r of regs) {
     if (!lijst.some((w) => w.email === r.email)) lijst.push({ email: r.email, naam: r.naam || r.email });
   }
   return lijst;
 }
 
 function overzicht() {
-  const dagen = berekenDagen(staat.regs);
+  const dagen = berekenDagen(regsGekozen());
   const per = (sleutel) => {
     const m = new Map();
     for (const d of dagen) {
@@ -120,8 +133,10 @@ function kader() {
 
 function periodeKeuze() {
   return `<div class="rij geen-print">
-      <label>Van <input type="date" id="van" value="${staat.van}"></label>
-      <label>Tot en met <input type="date" id="tot" value="${staat.tot}"></label>
+      <label>Van ${datumVeld("van", staat.van)}</label>
+      <label>Tot en met ${datumVeld("tot", staat.tot)}</label>
+      <label>Persoon <select id="persoon"><option value="">Iedereen</option>${staat.werknemers.map((w) =>
+        `<option value="${esc(w.email)}" ${staat.persoon === w.email ? "selected" : ""}>${esc(w.naam)}${w.actief ? "" : " (uit dienst)"}</option>`).join("")}</select></label>
       <button class="knop knop-blauw knop-klein" id="laad">Toon</button>
       <button class="knop knop-licht knop-klein" id="maand-terug">‹ Vorige maand</button>
       <button class="knop knop-licht knop-klein" id="maand-nu">Deze maand</button>
@@ -130,7 +145,14 @@ function periodeKeuze() {
 
 function koppelPeriode() {
   const herlaad = async () => { await laadRegistraties(); toon(); };
-  el.querySelector("#laad").onclick = () => { staat.van = el.querySelector("#van").value; staat.tot = el.querySelector("#tot").value; herlaad(); };
+  el.querySelector("#laad").onclick = () => {
+    const van = leesDatum(el.querySelector("#van").value), tot = leesDatum(el.querySelector("#tot").value);
+    if (!van || !tot) return alert("Vul de datums in als dd-mm-jjjj, bijvoorbeeld 01-10-2026.");
+    staat.van = van; staat.tot = tot;
+    if (staat.tot < staat.van) [staat.van, staat.tot] = [staat.tot, staat.van];
+    staat.persoon = el.querySelector("#persoon").value; herlaad();
+  };
+  el.querySelector("#persoon").onchange = () => el.querySelector("#laad").click();
   el.querySelector("#maand-nu").onclick = () => { standaardPeriode(); herlaad(); };
   el.querySelector("#maand-terug").onclick = () => {
     const [j, m] = staat.van.split("-").map(Number);
@@ -168,6 +190,7 @@ function toonUren(box) {
       <button class="knop knop-blauw knop-klein geen-print" id="excel" style="margin-bottom:14px">Download Excel</button>
       ${problemen.length ? `<div class="waarschuwingen"><b>Let op: ${problemen.length} dag(en) met een ontbrekende klok</b> (tellen niet volledig mee, corrigeer bij Registraties)
         <ul>${problemen.map((d) => `<li>${esc(d.naam)}, ${nlDatum(d.datum)}: ${esc(d.problemen.join("; "))}</li>`).join("")}</ul></div>` : ""}
+      ${staat.persoon ? dagDetails(o.dagen) : ""}
       <h2>Per dag</h2>
       ${rasterTabel(datums, kols, (d, k) => o.perDag.get(`${d}|${k.email}`),
         (d) => `${DAGEN[new Date(d + "T00:00:00Z").getUTCDay()]} ${d.slice(8)}-${d.slice(5, 7)}`,
@@ -175,10 +198,27 @@ function toonUren(box) {
       <h2>Per week</h2>
       ${rasterTabel(weken, kols, (w, k) => o.perWeek.get(`${w}|${k.email}`), (w) => `Week ${Number(w.slice(6))} (${w.slice(0, 4)})`)}
       ${maanden.length > 1 ? `<h2>Per maand</h2>${rasterTabel(maanden, kols, (m, k) => o.perMaand.get(`${m}|${k.email}`), (m) => `${MAANDEN[Number(m.slice(5)) - 1]} ${m.slice(0, 4)}`)}` : ""}
-      <p class="klein">Uren in decimalen: 7,50 = 7 uur en 30 minuten. Pauzes tellen alleen niet mee als iemand ervoor uit- en weer inklokt.</p>
+      <p class="klein">Uren in decimalen (7,50 = 7 uur en 30 minuten), na aftrek van de pauze: ${PAUZE.minuten} minuten per gewerkte dag,
+        ${PAUZE.langeDagMinuten} minuten bij meer dan ${PAUZE.langeDagMeerDanUren} uur geklokt. Werknemers hoeven voor de pauze dus niet uit te klokken.
+        Alle tijden zijn Nederlandse tijd.</p>
     </div>`;
   koppelPeriode();
   box.querySelector("#excel").onclick = () => downloadExcel(o, kols, datums, weken, maanden);
+}
+
+/** Tabel per dag voor één persoon: tijden, geklokt, pauze en uren. */
+function dagDetails(dagen) {
+  const som = (f) => dagen.reduce((t, d) => t + f(d), 0);
+  return `<h2>Dagen van ${esc(staat.werknemers.find((w) => w.email === staat.persoon)?.naam || staat.persoon)}</h2>
+    <div class="tabel-wrap"><table>
+      <thead><tr><th>Datum</th><th>Eerste in</th><th>Laatste uit</th><th class="getal">Geklokt</th><th class="getal">Pauze</th><th class="getal">Uren</th><th>Opmerking</th></tr></thead>
+      <tbody>${dagen.map((d) => `<tr><td>${DAGEN[new Date(d.datum + "T00:00:00Z").getUTCDay()]} ${nlDatum(d.datum)}</td>
+        <td>${d.eersteIn ? tijdTekst(d.eersteIn) : ""}</td><td>${d.laatsteUit ? tijdTekst(d.laatsteUit) : ""}</td>
+        <td class="getal">${urenTekst(d.bruto)}</td><td class="getal">${Math.round(d.pauze * 60)} min</td><td class="getal"><b>${urenTekst(d.uren)}</b></td>
+        <td>${esc(d.problemen.join("; "))}</td></tr>`).join("") || `<tr><td colspan="7">Geen registraties in deze periode.</td></tr>`}
+        <tr class="totaal"><td>Totaal</td><td></td><td></td><td class="getal">${urenTekst(som((d) => d.bruto))}</td>
+          <td class="getal">${Math.round(som((d) => d.pauze) * 60)} min</td><td class="getal">${urenTekst(som((d) => d.uren))}</td><td></td></tr>
+      </tbody></table></div>`;
 }
 
 function downloadExcel(o, kols, datums, weken, maanden) {
@@ -200,32 +240,35 @@ function downloadExcel(o, kols, datums, weken, maanden) {
     ws["!cols"] = breedtes.map((w) => ({ wch: w }));
     XLSX.utils.book_append_sheet(wb, ws, naam);
   };
-  blad([["Datum", "Naam", "E-mailadres", "Eerste in", "Laatste uit", "Uren", "Opmerking"],
-    ...o.dagen.map((d) => [alsDatum(d.datum), d.naam, d.email, d.eersteIn ? tijdTekst(d.eersteIn) : "", d.laatsteUit ? tijdTekst(d.laatsteUit) : "", r2(d.uren), d.problemen.join("; ")])],
-    "Uren per dag", [12, 24, 30, 10, 11, 8, 40]);
+  blad([["Datum", "Naam", "E-mailadres", "Eerste in", "Laatste uit", "Geklokt (uren)", "Pauze (min)", "Uren", "Opmerking"],
+    ...o.dagen.map((d) => [alsDatum(d.datum), d.naam, d.email, d.eersteIn ? tijdTekst(d.eersteIn) : "", d.laatsteUit ? tijdTekst(d.laatsteUit) : "",
+      r2(d.bruto), Math.round(d.pauze * 60), r2(d.uren), d.problemen.join("; ")])],
+    "Uren per dag", [12, 24, 30, 10, 11, 13, 11, 8, 40]);
   blad(raster(datums, "Datum", alsDatum, o.perDag), "Overzicht per dag", [12, ...kols.map(() => 14), 10]);
   blad(raster(weken, "Week", (w) => `${w.slice(0, 4)} week ${Number(w.slice(6))}`, o.perWeek), "Per week", [16, ...kols.map(() => 14), 10]);
   blad(raster(maanden, "Maand", (m) => `${MAANDEN[Number(m.slice(5)) - 1]} ${m.slice(0, 4)}`, o.perMaand), "Per maand", [12, ...kols.map(() => 14), 10]);
   blad([["Tijdstip", "E-mailadres", "Actie", "Naam", "Bron"],
-    ...staat.regs.map((r) => [new Date(`${r.datum}T${tijdTekst(r.tijd)}:00`), r.email, r.actie, r.naam, r.bron === "beheer" ? "correctie" : "scan"])],
+    ...regsGekozen().map((r) => [new Date(`${r.datum}T${tijdTekst(r.tijd)}:00`), r.email, r.actie, r.naam, r.bron === "beheer" ? "correctie" : "scan"])],
     "Registraties", [18, 30, 7, 24, 10]);
   wb.Sheets["Registraties"]["!cols"][0] = { wch: 18 };
   for (const c of Object.keys(wb.Sheets["Registraties"])) {
     if (/^A\d+$/.test(c) && c !== "A1") wb.Sheets["Registraties"][c].z = "dd-mm-yyyy hh:mm";
   }
-  XLSX.writeFile(wb, `Uren ${staat.van} tm ${staat.tot}.xlsx`);
+  const wie = staat.persoon ? ` ${staat.werknemers.find((w) => w.email === staat.persoon)?.naam || ""}` : "";
+  XLSX.writeFile(wb, `Uren${wie} ${staat.van} tm ${staat.tot}.xlsx`);
 }
 
 function toonRegistraties(box) {
-  const opties = staat.werknemers.map((w) => `<option value="${esc(w.email)}">${esc(w.naam)}</option>`).join("");
-  const nu = new Date(); nu.setMinutes(nu.getMinutes() - nu.getTimezoneOffset());
+  const opties = staat.werknemers.map((w) => `<option value="${esc(w.email)}" ${staat.persoon === w.email ? "selected" : ""}>${esc(w.naam)}</option>`).join("");
+  const nu = new Date();
   box.innerHTML = `
     <div class="kaart">
       <h2>Registratie toevoegen</h2>
       <p class="klein">Bijvoorbeeld als iemand vergeten is uit te klokken.</p>
       <form class="rij" id="corr">
         <label>Werknemer <select id="c-wie" required>${opties}</select></label>
-        <label>Datum en tijd <input type="datetime-local" id="c-tijd" required value="${nu.toISOString().slice(0, 16)}"></label>
+        <label>Datum ${datumVeld("c-datum", datumVan(nu))}</label>
+        <label>Tijd (24-uurs) <input id="c-tijd" required value="${tijdTekst(nu)}" placeholder="17:30" pattern="([01]?[0-9]|2[0-3])[:.][0-5][0-9]" inputmode="numeric" style="width:90px"></label>
         <label>Actie <select id="c-actie"><option>In</option><option selected>Uit</option></select></label>
         <button class="knop knop-blauw knop-klein" type="submit">Toevoegen</button>
       </form>
@@ -236,7 +279,7 @@ function toonRegistraties(box) {
       ${periodeKeuze()}
       <div class="tabel-wrap"><table>
         <thead><tr><th>Datum</th><th>Tijd</th><th>Naam</th><th>Actie</th><th>Bron</th><th></th></tr></thead>
-        <tbody>${[...staat.regs].reverse().map((r) => `<tr>
+        <tbody>${[...regsGekozen()].reverse().map((r) => `<tr>
           <td>${nlDatum(r.datum)}</td><td>${tijdTekst(r.tijd)}</td><td>${esc(r.naam)}</td>
           <td>${r.actie}</td><td>${r.bron === "beheer" ? "correctie door " + esc(r.door || "beheer") : "scan"}${r.locatie ? ` (${r.locatie.afstandMeter} m)` : ""}</td>
           <td><button class="link-knop" data-wis="${r.id}">verwijderen</button></td></tr>`).join("") || `<tr><td colspan="6">Geen registraties in deze periode.</td></tr>`}
@@ -247,7 +290,9 @@ function toonRegistraties(box) {
     ev.preventDefault();
     const email = box.querySelector("#c-wie").value;
     const w = staat.werknemers.find((x) => x.email === email);
-    const tijd = new Date(box.querySelector("#c-tijd").value);
+    const datum = leesDatum(box.querySelector("#c-datum").value);
+    if (!datum) { box.querySelector("#c-melding").textContent = "Vul de datum in als dd-mm-jjjj."; return; }
+    const tijd = amsterdamTijd(datum, box.querySelector("#c-tijd").value.replace(".", ":"));
     try {
       await addDoc(collection(db, "registraties"), {
         email, naam: w.naam, actie: box.querySelector("#c-actie").value,

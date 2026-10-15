@@ -87,7 +87,9 @@ Goed om te weten:
 
 ## Dagelijks gebruik (beheerder)
 
-- **Uren**: kies een periode en je ziet de uren per dag, per week en per maand. Bovenaan staat een rode melding als iemand vergeten is uit te klokken.
+- **Uren**: kies een periode (dd-mm-jjjj) en eventueel één persoon, en je ziet de uren per dag, per week en per maand. Kies je één persoon, dan zie je ook per dag de eerste in, laatste uit, geklokte tijd en pauze.
+- **Pauze**: per gewerkte dag gaat er automatisch 45 minuten pauze af, of 60 minuten bij meer dan 10 uur geklokt. Werknemers hoeven voor de pauze niet uit te klokken. Andere regels? Pas `PAUZE` aan in `config.js`.
+- Alle tijden zijn Nederlandse tijd (24-uurs), ook als je computer anders is ingesteld. Bovenaan staat een rode melding als iemand vergeten is uit te klokken.
 - **Download Excel**: één bestand met de uren per dag (eerste in, laatste uit, uren), overzichten per dag, week en maand, en alle registraties.
   Het tabblad *Registraties* heeft dezelfde eerste drie kolommen als het eerdere Excel-sjabloon en kun je daar ook in plakken.
 - **Registraties & correcties**: voeg een vergeten uitklok toe of verwijder een foute registratie. Correcties zijn herkenbaar als "correctie door …".

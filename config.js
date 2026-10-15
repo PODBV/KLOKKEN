@@ -27,3 +27,7 @@ export const EMAIL_LINK_LOGIN = false;
 export const KANTOOR = null;
 
 export const TIJDZONE = "Europe/Amsterdam";
+
+// Automatische pauze-aftrek per gewerkte dag: 45 minuten, of 60 minuten als
+// iemand meer dan 10 uur heeft gewerkt (gerekend over de geklokte tijd).
+export const PAUZE = { minuten: 45, langeDagMeerDanUren: 10, langeDagMinuten: 60 };

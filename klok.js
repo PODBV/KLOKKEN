@@ -70,7 +70,7 @@ async function klokScherm(werknemer, flits = "") {
     <div class="kaart">
       ${flits ? `<div class="flits">${flits}</div>` : ""}
       <h1>Hoi ${esc(werknemer.naam.split(" ")[0])}</h1>
-      <p class="sub">${status}${dag.uren >= 0.01 ? `<br>Vandaag gewerkt: <b>${urenTekst(dag.uren)} uur</b>` : ""}</p>
+      <p class="sub">${status}${dag.bruto >= 0.01 ? `<br>Vandaag geklokt: <b>${urenTekst(dag.bruto)} uur</b>` : ""}</p>
       ${s ? `<button class="knop knop-groot ${actie === "In" ? "knop-in" : "knop-uit"}" id="btn-klok">${actie === "In" ? "Inklokken" : "Uitklokken"}</button>
       <p class="melding" id="klok-melding" role="status"></p>`
         : `<div class="scan-eerst">📷 Scan de QR-code bij de deur om ${actie === "In" ? "in" : "uit"} te klokken.</div>`}

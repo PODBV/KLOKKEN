@@ -1,12 +1,33 @@
 // Rekenregels voor de uren. Geen afhankelijkheden, zodat dit ook los te testen is.
-import { TIJDZONE } from "./config.js";
+import { TIJDZONE, PAUZE } from "./config.js";
 
 const datumFmt = new Intl.DateTimeFormat("sv-SE", { timeZone: TIJDZONE, year: "numeric", month: "2-digit", day: "2-digit" });
-const tijdFmt = new Intl.DateTimeFormat("nl-NL", { timeZone: TIJDZONE, hour: "2-digit", minute: "2-digit" });
+const tijdFmt = new Intl.DateTimeFormat("nl-NL", { timeZone: TIJDZONE, hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+const delenFmt = new Intl.DateTimeFormat("en-GB", { timeZone: TIJDZONE, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+
+/** "2026-10-13" + "17:30" in Nederlandse tijd (ook als de computer in een andere tijdzone staat). */
+export function amsterdamTijd(datum, tijd) {
+  const [j, m, d] = datum.split("-").map(Number), [u, mi] = tijd.split(":").map(Number);
+  const doel = Date.UTC(j, m - 1, d, u, mi);
+  let t = doel;
+  for (let i = 0; i < 2; i++) {          // twee keer: klopt ook rond de zomer-/wintertijd
+    const p = Object.fromEntries(delenFmt.formatToParts(new Date(t)).map((x) => [x.type, x.value]));
+    const lokaal = Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour % 24, +p.minute);
+    t += doel - lokaal;
+  }
+  return new Date(t);
+}
+
+/** Pauze in uren die van een dag met `bruto` gewerkte uren afgaat. */
+export function pauzeUren(bruto) {
+  if (!(bruto > 0)) return 0;
+  const min = bruto > PAUZE.langeDagMeerDanUren ? PAUZE.langeDagMinuten : PAUZE.minuten;
+  return Math.min(bruto, min / 60);
+}
 
 /** Kalenderdatum in Nederlandse tijd, als "2026-10-13". */
 export const datumVan = (d) => datumFmt.format(d);
-/** Kloktijd in Nederlandse tijd, als "08:05". */
+/** Kloktijd in Nederlandse tijd, 24-uurs, als "08:05". */
 export const tijdTekst = (d) => tijdFmt.format(d);
 /** Uren als "7,50". */
 export const urenTekst = (u) => (u || 0).toFixed(2).replace(".", ",");
@@ -35,7 +56,9 @@ export function berekenDag(regs) {
     }
   }
   if (open) problemen.push(`Geen uitklok na ${tijdTekst(open)}`);
-  return { uren, eersteIn, laatsteUit, ingeklokt: !!open, ingekloktSinds: open, laatste: lijst.at(-1) || null, problemen };
+  // uren = netto, na automatische pauze-aftrek.
+  const bruto = uren, pauze = pauzeUren(bruto);
+  return { uren: bruto - pauze, bruto, pauze, eersteIn, laatsteUit, ingeklokt: !!open, ingekloktSinds: open, laatste: lijst.at(-1) || null, problemen };
 }
 
 /** Groepeert registraties per werknemer per dag en rekent elke dag door. */
