@@ -14,10 +14,9 @@ export const firebaseConfig = {
 
 export const BEDRIJFSNAAM = "POD Logistics";
 
-// Inloggen met Microsoft. De Azure-app "Klok-app" is geregistreerd voor persoonlijke
-// Microsoft-accounts (Outlook), daarom "consumers". Voor werkaccounts van één organisatie
-// vul je hier de "Directory (tenant) ID" in. null = Microsoft-knop verbergen.
-export const MICROSOFT_TENANT = "consumers";
+// Inloggen met Microsoft: alleen werkaccounts van POD Logistics (Directory/tenant ID
+// van de Azure-app "Klok-app"). null = Microsoft-knop verbergen.
+export const MICROSOFT_TENANT = "d6520df1-4cc1-4777-ab40-423852bfb41e";
 
 // Inloggen via een link per e-mail. Werkt voor elk e-mailadres, maar het
 // gratis Firebase-abonnement verstuurt maximaal 5 van deze mails per dag.
