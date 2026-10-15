@@ -4,8 +4,9 @@ rules_version = '2';
 //  - Een werknemer kan alleen voor zichzelf klokken, met de tijd van de server.
 //    "Zichzelf" is de werknemer aan wie de telefoon is gekoppeld (persoonlijke
 //    koppel-QR, eenmalig te gebruiken) of het account waarmee is ingelogd.
-//  - Klokken kan alleen met de wisselende QR-code van het deurscherm (tablet bij
-//    de deur). Die code is na ongeveer een minuut niet meer geldig.
+//  - Klokken kan alleen met de geheime code uit de QR-code bij de deur: de
+//    papieren QR (vaste code) of het deurscherm (tablet, code wisselt elke 30 s).
+//  - Is de kantoorlocatie ingesteld, dan moet de telefoon een locatie meesturen.
 //  - Een werknemer kan geen registraties wijzigen of verwijderen.
 //  - Alleen beheerders zien alle uren en beheren werknemers, koppelingen en correcties.
 service cloud.firestore {
@@ -31,6 +32,13 @@ service cloud.firestore {
     function deurschermPad() { return /databases/$(database)/documents/deurschermen/$(request.auth.uid); }
     function isDeurscherm() { return request.auth != null && exists(deurschermPad()); }
     function deurPad(s) { return /databases/$(database)/documents/deur/$(s); }
+    function kantoorPad() { return /databases/$(database)/documents/instellingen/kantoor; }
+
+    // De code uit de papieren QR-code (vast, tot de beheerder een nieuwe maakt).
+    function geldigePapiercode(c) {
+      return exists(deurPad('papier')) && c is string && c.size() >= 16
+        && c == get(deurPad('papier')).data.code;
+    }
 
     // De code uit de QR-code van deurscherm s: de huidige of de vorige, en het
     // scherm moet de afgelopen 90 seconden nog een nieuwe code hebben gemaakt.
@@ -48,9 +56,12 @@ service cloud.firestore {
         && get(werknemerPad(e)).data.actief == true
         && d.keys().hasOnly(['email', 'naam', 'actie', 'tijd', 'datum', 'bron', 'scherm', 'deur', 'locatie'])
         && d.keys().hasAll(['email', 'naam', 'actie', 'tijd', 'datum', 'bron', 'scherm', 'deur'])
-        && d.scherm is string && exists(deurPad(d.scherm))
-        && exists(/databases/$(database)/documents/deurschermen/$(d.scherm))
-        && geldigeDeurcode(d.scherm, d.deur)
+        && d.scherm is string
+        && ((d.scherm == 'papier' && geldigePapiercode(d.deur))
+            || (d.scherm != 'papier' && exists(deurPad(d.scherm))
+                && exists(/databases/$(database)/documents/deurschermen/$(d.scherm))
+                && geldigeDeurcode(d.scherm, d.deur)))
+        && (!exists(kantoorPad()) || ('locatie' in d && d.locatie is map))
         && d.email == e
         && d.naam == get(werknemerPad(e)).data.naam
         && d.actie in ['In', 'Uit']
@@ -125,11 +136,21 @@ service cloud.firestore {
     match /deur/{uid} {
       allow get: if isBeheerder() || (request.auth != null && request.auth.uid == uid);
       allow list, delete: if isBeheerder();
+      // De papieren QR-code maakt de beheerder.
+      allow create, update: if isBeheerder() && uid == 'papier'
+        && request.resource.data.keys().hasOnly(['code', 'sinds', 'door'])
+        && request.resource.data.code is string && request.resource.data.code.size() >= 16;
       allow create, update: if request.auth != null && request.auth.uid == uid && isDeurscherm()
         && request.resource.data.keys().hasOnly(['code', 'vorige', 'sinds'])
         && request.resource.data.code is string && request.resource.data.code.size() >= 16
         && request.resource.data.vorige is string
         && request.resource.data.sinds == request.time;
+    }
+
+    // Kantoorlocatie voor de locatiecheck op de telefoon.
+    match /instellingen/{id} {
+      allow get: if request.auth != null;
+      allow list, write: if isBeheerder();
     }
 
     match /registraties/{id} {

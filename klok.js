@@ -1,4 +1,4 @@
-// Klokpagina: de wisselende QR-code op het deurscherm opent deze pagina.
+// Klokpagina: de QR-code bij de deur (papier of deurscherm) opent deze pagina.
 import {
   auth, db, nietIngesteld, onAuthStateChanged, collection, doc, getDoc, getDocs,
   addDoc, query, where, serverTimestamp, signInAnonymously, writeBatch,
@@ -15,8 +15,8 @@ function bericht(titel, tekst, extra = "") {
 }
 
 // ---------- de scan van de deur-QR ----------
-// De QR-code op het deurscherm bevat ?s=<scherm>&d=<code>. De code wisselt elke
-// 30 seconden en de database accepteert hem maar kort. Zonder verse scan geen knop.
+// De QR-code bij de deur bevat ?s=<scherm>&d=<code> (s=papier voor de geprinte QR).
+// De database controleert de code. Zonder verse scan laat de pagina geen knop zien.
 const SCAN_GELDIG_MS = 75000;
 function bewaarScan() {
   const p = new URLSearchParams(location.search);
@@ -31,7 +31,15 @@ function scan() {
 }
 function scanGebruikt() { try { sessionStorage.removeItem("klok-scan"); } catch { /* geen opslag */ } }
 
-let verloopTimer;
+let verloopTimer, kantoorCache;
+/** De kantoorlocatie uit Beheer (of uit config.js). null = geen locatiecheck. */
+async function kantoor() {
+  if (KANTOOR) return KANTOOR;
+  if (kantoorCache === undefined) {
+    kantoorCache = await getDoc(doc(db, "instellingen", "kantoor")).then((d) => (d.exists() ? d.data() : null)).catch(() => null);
+  }
+  return kantoorCache;
+}
 async function vandaag(email) {
   const snap = await getDocs(query(collection(db, "registraties"),
     where("email", "==", email), where("datum", "==", datumVan(new Date()))));
@@ -65,7 +73,7 @@ async function klokScherm(werknemer, flits = "") {
       <p class="sub">${status}${dag.uren >= 0.01 ? `<br>Vandaag gewerkt: <b>${urenTekst(dag.uren)} uur</b>` : ""}</p>
       ${s ? `<button class="knop knop-groot ${actie === "In" ? "knop-in" : "knop-uit"}" id="btn-klok">${actie === "In" ? "Inklokken" : "Uitklokken"}</button>
       <p class="melding" id="klok-melding" role="status"></p>`
-        : `<div class="scan-eerst">📷 Scan de QR-code op het scherm bij de deur om ${actie === "In" ? "in" : "uit"} te klokken.</div>`}
+        : `<div class="scan-eerst">📷 Scan de QR-code bij de deur om ${actie === "In" ? "in" : "uit"} te klokken.</div>`}
       <p class="voet">Niet ${esc(werknemer.naam)}? <a href="#" id="uitlog">${werknemer.viaTelefoon ? "Telefoon ontkoppelen" : "Uitloggen"}</a></p>
     </div>`;
   el.querySelector("#uitlog").onclick = (e) => {
@@ -86,11 +94,12 @@ async function klokScherm(werknemer, flits = "") {
       const nuScan = scan();
       if (!nuScan) throw new Error("De QR-code is verlopen. Scan de code bij de deur opnieuw.");
       const reg = { email, naam: werknemer.naam, actie, tijd: serverTimestamp(), datum: datumVan(new Date()), bron: "scan", scherm: nuScan.s, deur: nuScan.d };
-      if (KANTOOR) {
+      const k = await kantoor();
+      if (k) {
         melding.textContent = "Locatie controleren…";
         const pos = await locatie();
-        const afstand = afstandMeter(pos, KANTOOR);
-        if (afstand > KANTOOR.straalMeter + Math.min(pos.nauwkeurigheid, 500)) {
+        const afstand = afstandMeter(pos, k);
+        if (afstand > k.straalMeter + Math.min(pos.nauwkeurigheid, 500)) {
           throw new Error(`Je bent niet op kantoor (ongeveer ${Math.round(afstand)} meter ervandaan). Klokken kan alleen op locatie.`);
         }
         reg.locatie = { afstandMeter: Math.round(afstand), nauwkeurigheidMeter: Math.round(pos.nauwkeurigheid) };
@@ -102,7 +111,7 @@ async function klokScherm(werknemer, flits = "") {
     } catch (e) {
       knop.disabled = false;
       melding.textContent = e?.code === "permission-denied"
-        ? "Klokken is geweigerd: de QR-code is waarschijnlijk verlopen. Scan de code bij de deur opnieuw."
+        ? "Klokken is geweigerd. Scan de code bij de deur opnieuw."
         : (e?.message || "Er ging iets mis. Probeer het opnieuw.");
     }
   };

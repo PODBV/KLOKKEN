@@ -31,8 +31,10 @@ async function laadWerknemers() {
 }
 
 async function laadDeurschermen() {
-  const [s, d] = await Promise.all([getDocs(collection(db, "deurschermen")), getDocs(collection(db, "deur"))]);
+  const [s, d, k] = await Promise.all([getDocs(collection(db, "deurschermen")), getDocs(collection(db, "deur")), getDoc(doc(db, "instellingen", "kantoor"))]);
   const codes = new Map(d.docs.map((x) => [x.id, x.data()]));
+  staat.papier = codes.get("papier")?.code || null;
+  staat.kantoor = k.exists() ? k.data() : null;
   staat.deurschermen = s.docs.map((x) => ({ uid: x.id, ...x.data(), laatst: codes.get(x.id)?.sinds?.toDate() }));
 }
 
@@ -102,7 +104,7 @@ function overzicht() {
 function kader() {
   el.innerHTML = `
     <nav class="tabs">
-      ${[["uren", "Uren"], ["registraties", "Registraties & correcties"], ["werknemers", "Werknemers"], ["qr", "Deurscherm"]]
+      ${[["uren", "Uren"], ["registraties", "Registraties & correcties"], ["werknemers", "Werknemers"], ["qr", "QR bij de deur"]]
         .map(([k, t]) => `<button class="tab ${staat.tab === k ? "actief" : ""}" data-tab="${k}">${t}</button>`).join("")}
     </nav>
     <div id="inhoud"></div>`;
@@ -346,21 +348,97 @@ function toonKoppel(box) {
 
 const deurUrl = () => new URL("deur.html", location.href.split("?")[0].split("#")[0]).href;
 
-/** Het deurscherm: een tablet bij de deur met een QR-code die elke 30 seconden wisselt. */
+function nieuweCode() {
+  const bytes = crypto.getRandomValues(new Uint8Array(18));
+  return btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+function mijnLocatie() {
+  return new Promise((ok, fout) => {
+    if (!navigator.geolocation) return fout(new Error("Deze browser geeft geen locatie door."));
+    navigator.geolocation.getCurrentPosition((p) => ok(p.coords),
+      () => fout(new Error("Geef de browser toestemming voor je locatie.")), { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 });
+  });
+}
+
+/** QR-code bij de deur: papier (vaste geheime code) met locatiecheck, of optioneel een tablet. */
 function toonQr(box) {
+  const papierUrl = staat.papier ? `${klokUrl()}?s=papier&d=${staat.papier}` : null;
+  const k = staat.kantoor;
+  box.innerHTML = `
+    <div class="kaart" id="qr-print">
+      ${papierUrl ? `
+        <h1>Scan om in of uit te klokken</h1>
+        <p class="sub">${esc(BEDRIJFSNAAM)} · open de camera van je telefoon</p>
+        ${qrSvg(papierUrl)}
+        <div class="rij geen-print" style="justify-content:center;margin-top:14px">
+          <button class="knop knop-blauw knop-klein" id="print">Printen</button>
+          <button class="knop knop-licht knop-klein" id="papier-nieuw">Nieuwe code maken</button>
+        </div>
+        <p class="klein geen-print">Hang deze QR-code bij de deur. Alleen met deze code kan geklokt worden.
+          Denk je dat er een foto van rondgaat? Klik <b>Nieuwe code maken</b> en print opnieuw: de oude print werkt dan niet meer.</p>`
+      : `<h2>QR-code voor bij de deur</h2>
+        <p class="sub">Maak een QR-code met een geheime code erin en hang die bij de deur. Alleen met die code kan geklokt worden.</p>
+        <button class="knop knop-blauw knop-klein" id="papier-nieuw">QR-code maken</button>`}
+      <p class="melding geen-print" id="papier-melding"></p>
+    </div>
+    <div class="kaart geen-print">
+      <h2>Alleen klokken op kantoor (locatiecheck)</h2>
+      ${k ? `<p>✓ Aan: telefoons kunnen alleen klokken binnen <b>${k.straalMeter} meter</b> van de vastgelegde kantoorlocatie.</p>`
+        : `<p><b>Uit.</b> Iemand met een foto van de QR-code kan nu ook van buiten kantoor klokken. Zet de locatiecheck aan als je op kantoor bent.</p>`}
+      <div class="rij">
+        <label>Straal in meters <input type="number" id="straal" min="50" max="2000" step="10" value="${k?.straalMeter || 150}" style="width:120px"></label>
+        <button class="knop knop-blauw knop-klein" id="kantoor-zet">${k ? "Opnieuw vastleggen op mijn huidige plek" : "Aanzetten: mijn huidige plek is kantoor"}</button>
+        ${k ? `<button class="knop knop-licht knop-klein" id="kantoor-uit">Uitzetten</button>` : ""}
+      </div>
+      <p class="klein">Doe dit op je telefoon of laptop terwijl je op kantoor bent. Werknemers moeten bij het klokken hun locatie delen;
+        de app bewaart alleen de afstand tot kantoor, niet de locatie zelf.</p>
+      <p class="melding" id="kantoor-melding"></p>
+    </div>
+    <details class="kaart geen-print" ${(staat.deurschermen || []).length || staat.deurKoppel ? "open" : ""}>
+      <summary><b>Liever een tablet bij de deur? (optioneel)</b></summary>
+      <div id="tablet" style="margin-top:12px"></div>
+    </details>`;
+  const pm = box.querySelector("#papier-melding"), km = box.querySelector("#kantoor-melding");
+  box.querySelector("#print")?.addEventListener("click", () => window.print());
+  box.querySelector("#papier-nieuw").onclick = async () => {
+    if (staat.papier && !confirm("Nieuwe code maken? De QR-code die nu bij de deur hangt werkt daarna niet meer.")) return;
+    try {
+      await setDoc(doc(db, "deur", "papier"), { code: nieuweCode(), sinds: Timestamp.now(), door: mijnEmail() });
+      await laadDeurschermen(); toon();
+    } catch (e) { pm.textContent = e.message; }
+  };
+  box.querySelector("#kantoor-zet").onclick = async () => {
+    const straal = Math.max(50, Math.min(2000, Number(box.querySelector("#straal").value) || 150));
+    km.textContent = "Locatie bepalen…";
+    try {
+      const c = await mijnLocatie();
+      if (c.accuracy > 200 && !confirm(`De locatie is maar op ongeveer ${Math.round(c.accuracy)} meter nauwkeurig. Toch vastleggen?`)) { km.textContent = ""; return; }
+      await setDoc(doc(db, "instellingen", "kantoor"), { lat: c.latitude, lng: c.longitude, straalMeter: straal, door: mijnEmail(), sinds: Timestamp.now() });
+      await laadDeurschermen(); toon();
+    } catch (e) { km.textContent = e.message; }
+  };
+  box.querySelector("#kantoor-uit")?.addEventListener("click", async () => {
+    if (!confirm("Locatiecheck uitzetten? Dan kan met een foto van de QR-code ook buiten kantoor geklokt worden.")) return;
+    await deleteDoc(doc(db, "instellingen", "kantoor"));
+    await laadDeurschermen(); toon();
+  });
+  toonTablet(box.querySelector("#tablet"));
+}
+
+function toonTablet(box) {
   const schermen = staat.deurschermen || [];
   const k = staat.deurKoppel;
   box.innerHTML = `
-    <div class="kaart">
-      <h2>Deurscherm</h2>
-      <p class="sub">Werknemers klokken alleen met de QR-code op een tablet (of oude telefoon) bij de deur. Die code wisselt elke 30 seconden,
-        dus een foto of bewaarde link werkt na een minuut niet meer. Hang de tablet aan de oplader en laat <b>deur.html</b> openstaan.</p>
+    <div>
+      <p class="sub">Nog strenger dan papier: een tablet (of oude telefoon) bij de deur toont een QR-code die elke 30 seconden wisselt,
+        dus een foto of bewaarde link werkt na een minuut niet meer. De papieren QR blijft daarnaast werken. Hang de tablet aan de oplader en laat <b>deur.html</b> openstaan.</p>
       ${schermen.length ? `<div class="tabel-wrap"><table>
         <thead><tr><th>Naam</th><th>Gekoppeld sinds</th><th>Status</th><th></th></tr></thead>
         <tbody>${schermen.map((d) => `<tr><td>${esc(d.naam)}</td><td>${d.sinds ? nlDatum(datumVan(d.sinds.toDate())) : ""}</td>
           <td>${d.laatst && Date.now() - d.laatst < 120000 ? "✓ aan" : `<span style="color:var(--uit)">uit${d.laatst ? ` sinds ${nlDatum(datumVan(d.laatst))} ${tijdTekst(d.laatst)}` : ""}</span>`}</td>
           <td><button class="link-knop" data-ontkoppel-deur="${esc(d.uid)}">ontkoppelen</button></td></tr>`).join("")}</tbody></table></div>`
-        : `<p><b>Nog geen deurscherm gekoppeld.</b> Zolang dat zo is, kan niemand klokken.</p>`}
+        : `<p>Nog geen tablet gekoppeld.</p>`}
       <div class="rij">
         <label>Naam van het scherm <input id="deur-naam" value="${schermen.length ? "" : "Voordeur"}" placeholder="bijv. Voordeur"></label>
         <button class="knop knop-blauw knop-klein" id="deur-koppel">Deurscherm koppelen</button>
@@ -368,7 +446,7 @@ function toonQr(box) {
       </div>
       <p class="melding" id="deur-melding"></p>
     </div>
-    ${k ? `<div class="kaart" id="qr-print">
+    ${k ? `<div style="text-align:center">
       <h1>Koppel ${esc(k.naam)}</h1>
       <p class="sub">Scan deze code met de camera van de <b>tablet</b> die bij de deur komt, of open de link daar in de browser.<br>
         Eenmalig te gebruiken en 7 dagen geldig.</p>
@@ -381,8 +459,7 @@ function toonQr(box) {
   box.querySelector("#deur-koppel").onclick = async () => {
     const naam = box.querySelector("#deur-naam").value.trim();
     if (!naam) { melding.textContent = "Geef het scherm een naam."; return; }
-    const bytes = crypto.getRandomValues(new Uint8Array(18));
-    const code = btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+    const code = nieuweCode();
     try {
       await setDoc(doc(db, "koppelcodes", code), { soort: "deur", email: "", naam, gebruikt: false, aangemaakt: Timestamp.now(), door: mijnEmail() });
       staat.deurKoppel = { naam, url: `${deurUrl()}?koppel=${code}` };
