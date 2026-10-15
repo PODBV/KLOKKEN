@@ -1,16 +1,19 @@
 rules_version = '2';
 
-// Beveiliging van de klok-app. Plak dit in Firebase > Firestore Database > Regels.
+// Beveiliging van de klok-app. Plak dit in Firebase > Firestore Database > Rules.
 //  - Een werknemer kan alleen voor zichzelf klokken, met de tijd van de server.
+//    "Zichzelf" is de werknemer aan wie de telefoon is gekoppeld (persoonlijke
+//    koppel-QR, eenmalig te gebruiken) of het account waarmee is ingelogd.
 //  - Een werknemer kan geen registraties wijzigen of verwijderen.
-//  - Alleen beheerders zien alle uren en beheren werknemers en correcties.
+//  - Alleen beheerders zien alle uren en beheren werknemers, koppelingen en correcties.
 service cloud.firestore {
   match /databases/{database}/documents {
 
+    // ---------- wie is dit? ----------
     function ingelogd() {
       return request.auth != null && request.auth.token.email is string
         // Google en e-maillink leveren een geverifieerd adres. Microsoft-login is
-        // in de app beperkt tot jullie eigen organisatie (tenant).
+        // beperkt tot jullie eigen organisatie (zie HANDLEIDING, stap 4).
         && (request.auth.token.email_verified == true
             || request.auth.token.firebase.sign_in_provider == 'microsoft.com');
     }
@@ -18,15 +21,33 @@ service cloud.firestore {
     function isBeheerder() {
       return ingelogd() && exists(/databases/$(database)/documents/beheerders/$(mijnEmail()));
     }
-    function werknemer() { return get(/databases/$(database)/documents/werknemers/$(mijnEmail())); }
-    function isActieveWerknemer() {
-      return ingelogd()
-        && exists(/databases/$(database)/documents/werknemers/$(mijnEmail()))
-        && werknemer().data.actief == true;
+    function apparaatPad() { return /databases/$(database)/documents/apparaten/$(request.auth.uid); }
+    function isGekoppeld() { return request.auth != null && exists(apparaatPad()); }
+    function apparaatEmail() { return get(apparaatPad()).data.email; }
+    function werknemerPad(e) { return /databases/$(database)/documents/werknemers/$(e); }
+    function codePad(c) { return /databases/$(database)/documents/koppelcodes/$(c); }
+
+    // Een geldige klok voor werknemer e, door die werknemer zelf.
+    function geldigeKlok(e) {
+      let d = request.resource.data;
+      return exists(werknemerPad(e))
+        && get(werknemerPad(e)).data.actief == true
+        && d.keys().hasOnly(['email', 'naam', 'actie', 'tijd', 'datum', 'bron', 'locatie'])
+        && d.keys().hasAll(['email', 'naam', 'actie', 'tijd', 'datum', 'bron'])
+        && d.email == e
+        && d.naam == get(werknemerPad(e)).data.naam
+        && d.actie in ['In', 'Uit']
+        && d.tijd == request.time
+        && d.datum is string && d.datum.size() == 10
+        && d.bron == 'scan'
+        && (!('locatie' in d) || d.locatie is map);
     }
 
+    // ---------- collecties ----------
     match /werknemers/{email} {
-      allow read: if isBeheerder() || (ingelogd() && email == mijnEmail());
+      allow read: if isBeheerder()
+        || (ingelogd() && email == mijnEmail())
+        || (isGekoppeld() && email == apparaatEmail());
       allow write: if isBeheerder();
     }
 
@@ -35,20 +56,43 @@ service cloud.firestore {
       allow write: if isBeheerder();
     }
 
-    match /registraties/{id} {
-      allow read: if isBeheerder() || (ingelogd() && resource.data.email == mijnEmail());
+    // Persoonlijke koppel-QR: alleen wie de (lange, willekeurige) code kent, kan hem openen.
+    match /koppelcodes/{code} {
+      allow get: if request.auth != null;
+      allow list, create, delete: if isBeheerder();
+      allow update: if isBeheerder() || (
+        request.auth != null
+        && resource.data.gebruikt == false
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['gebruikt', 'gebruiktDoor'])
+        && request.resource.data.gebruikt == true
+        && request.resource.data.gebruiktDoor == request.auth.uid
+        && getAfter(apparaatPad()).data.code == code);
+    }
 
-      // Klokken door de werknemer zelf.
-      allow create: if isActieveWerknemer()
-        && request.resource.data.keys().hasOnly(['email', 'naam', 'actie', 'tijd', 'datum', 'bron', 'locatie'])
-        && request.resource.data.keys().hasAll(['email', 'naam', 'actie', 'tijd', 'datum', 'bron'])
-        && request.resource.data.email == mijnEmail()
-        && request.resource.data.naam == werknemer().data.naam
-        && request.resource.data.actie in ['In', 'Uit']
-        && request.resource.data.tijd == request.time
-        && request.resource.data.datum is string && request.resource.data.datum.size() == 10
-        && request.resource.data.bron == 'scan'
-        && (!('locatie' in request.resource.data) || request.resource.data.locatie is map);
+    // Een telefoon die aan een werknemer is gekoppeld (één document per telefoon).
+    match /apparaten/{uid} {
+      allow get: if isBeheerder() || (request.auth != null && request.auth.uid == uid);
+      allow list, delete: if isBeheerder();
+      allow create: if request.auth != null && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['email', 'naam', 'code', 'sinds'])
+        && request.resource.data.code is string
+        && exists(codePad(request.resource.data.code))
+        && get(codePad(request.resource.data.code)).data.gebruikt == false
+        && request.time < get(codePad(request.resource.data.code)).data.aangemaakt + duration.value(7, 'd')
+        && request.resource.data.email == get(codePad(request.resource.data.code)).data.email
+        && request.resource.data.naam == get(codePad(request.resource.data.code)).data.naam
+        && request.resource.data.sinds == request.time
+        && getAfter(codePad(request.resource.data.code)).data.gebruikt == true;
+    }
+
+    match /registraties/{id} {
+      allow read: if isBeheerder()
+        || (ingelogd() && resource.data.email == mijnEmail())
+        || (isGekoppeld() && resource.data.email == apparaatEmail());
+
+      // Klokken via een gekoppelde telefoon of een eigen account.
+      allow create: if isGekoppeld() && geldigeKlok(apparaatEmail());
+      allow create: if ingelogd() && geldigeKlok(mijnEmail());
 
       // Correcties (vergeten uitklok e.d.) door een beheerder.
       allow create, update, delete: if isBeheerder();

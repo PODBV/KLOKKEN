@@ -1,7 +1,7 @@
 // Klokpagina: de QR-code bij de deur opent deze pagina.
 import {
   auth, db, nietIngesteld, onAuthStateChanged, collection, doc, getDoc, getDocs,
-  addDoc, query, where, serverTimestamp,
+  addDoc, query, where, serverTimestamp, signInAnonymously, writeBatch,
 } from "./firebase.js";
 import { toonLogin, rondEmailLinkAf, mijnEmail, uitloggen } from "./login.js";
 import { KANTOOR, BEDRIJFSNAAM } from "./config.js";
@@ -31,7 +31,7 @@ function locatie() {
 }
 
 async function klokScherm(werknemer, flits = "") {
-  const email = mijnEmail();
+  const email = werknemer.email;
   const dag = berekenDag(await vandaag(email));
   const actie = dag.ingeklokt ? "Uit" : "In";
   const status = dag.ingeklokt
@@ -44,9 +44,13 @@ async function klokScherm(werknemer, flits = "") {
       <p class="sub">${status}${dag.uren >= 0.01 ? `<br>Vandaag gewerkt: <b>${urenTekst(dag.uren)} uur</b>` : ""}</p>
       <button class="knop knop-groot ${actie === "In" ? "knop-in" : "knop-uit"}" id="btn-klok">${actie === "In" ? "Inklokken" : "Uitklokken"}</button>
       <p class="melding" id="klok-melding" role="status"></p>
-      <p class="voet">Niet ${esc(werknemer.naam)}? <a href="#" id="uitlog">Uitloggen</a></p>
+      <p class="voet">Niet ${esc(werknemer.naam)}? <a href="#" id="uitlog">${werknemer.viaTelefoon ? "Telefoon ontkoppelen" : "Uitloggen"}</a></p>
     </div>`;
-  el.querySelector("#uitlog").onclick = (e) => { e.preventDefault(); uitloggen(); };
+  el.querySelector("#uitlog").onclick = (e) => {
+    e.preventDefault();
+    if (werknemer.viaTelefoon && !confirm("Deze telefoon ontkoppelen? Je hebt daarna een nieuwe koppel-QR van de beheerder nodig.")) return;
+    uitloggen();
+  };
   const knop = el.querySelector("#btn-klok");
   const melding = el.querySelector("#klok-melding");
   knop.onclick = async () => {
@@ -78,25 +82,84 @@ async function klokScherm(werknemer, flits = "") {
   };
 }
 
+/** Koppelt deze telefoon aan een werknemer met de code uit de persoonlijke koppel-QR. */
+async function koppel(code) {
+  if (!auth.currentUser) await signInAnonymously(auth);
+  if (!auth.currentUser.isAnonymous) throw new Error("Log eerst uit voordat je deze telefoon koppelt.");
+  const uid = auth.currentUser.uid;
+  const mijnApparaat = await getDoc(doc(db, "apparaten", uid));
+  if (mijnApparaat.exists()) return;                       // al gekoppeld
+  let kc;
+  try { kc = await getDoc(doc(db, "koppelcodes", code)); } catch { kc = null; }
+  if (!kc?.exists() || kc.data().gebruikt) throw new Error("Deze koppel-QR is al gebruikt of bestaat niet. Vraag de beheerder om een nieuwe.");
+  const batch = writeBatch(db);
+  batch.set(doc(db, "apparaten", uid), { email: kc.data().email, naam: kc.data().naam, code, sinds: serverTimestamp() });
+  batch.update(doc(db, "koppelcodes", code), { gebruikt: true, gebruiktDoor: uid });
+  try { await batch.commit(); }
+  catch { throw new Error("Koppelen lukte niet. De koppel-QR is mogelijk verlopen (7 dagen geldig). Vraag de beheerder om een nieuwe."); }
+}
+
+/** Zoekt uit welke werknemer deze telefoon of dit account is. */
+async function wieBenIk(user) {
+  let email, viaTelefoon = false;
+  if (user.isAnonymous) {
+    const a = await getDoc(doc(db, "apparaten", user.uid));
+    if (!a.exists()) return null;
+    email = a.data().email; viaTelefoon = true;
+  } else {
+    email = mijnEmail();
+  }
+  const w = await getDoc(doc(db, "werknemers", email)).catch(() => null);
+  return { email, viaTelefoon, bekend: !!w?.exists(), actief: w?.exists() && w.data().actief === true, ...(w?.exists() ? w.data() : {}) };
+}
+
+function nietGekoppeld() {
+  bericht("Telefoon nog niet gekoppeld",
+    "Scan eerst één keer je <b>persoonlijke koppel-QR</b>. Die krijg je van de beheerder. Daarna herkent deze telefoon je automatisch als je de QR-code bij de deur scant.",
+    `<p class="voet"><a href="#" id="account">Of log in met een account</a></p>`);
+  el.querySelector("#account").onclick = (e) => { e.preventDefault(); toonLogin(el); };
+}
+
 if (nietIngesteld) {
   bericht("Nog niet ingesteld", "Vul eerst de Firebase-gegevens in <code>config.js</code> in (zie HANDLEIDING.md).");
 } else {
   bericht("Even geduld", "Laden…");
+  const code = new URLSearchParams(location.search).get("code");
+  let koppelen = Promise.resolve();
+  if (code) {
+    koppelen = auth.authStateReady()
+      .then(() => koppel(code))
+      .then(() => { history.replaceState(null, "", location.pathname); })
+      .catch((e) => { history.replaceState(null, "", location.pathname); throw e; });
+  }
   rondEmailLinkAf().catch((e) => bericht("Inloggen mislukt", esc(e?.message || e)));
-  onAuthStateChanged(auth, async (user) => {
-    if (!user) return toonLogin(el);
+  let eerste = true, getoond;   // getoond: uid van het laatst getoonde scherm
+  onAuthStateChanged(auth, async () => {
     try {
-      const w = await getDoc(doc(db, "werknemers", mijnEmail()));
-      if (!w.exists() || w.data().actief !== true) {
+      await koppelen;
+    } catch (e) {
+      return bericht("Koppelen mislukt", esc(e?.message || e));
+    }
+    const user = auth.currentUser;
+    if (getoond !== undefined && getoond === (user?.uid ?? null)) return;
+    getoond = user?.uid ?? null;
+    if (!user) return nietGekoppeld();
+    try {
+      const ik = await wieBenIk(user);
+      if (!ik) return nietGekoppeld();
+      if (!ik.actief) {
         bericht("Nog niet aangemeld",
-          `Je bent ingelogd als <b>${esc(user.email)}</b>, maar dit adres staat nog niet op de lijst van werknemers. Vraag de beheerder om je toe te voegen.`,
-          `<button class="knop knop-licht" id="opnieuw">Opnieuw proberen</button><p class="voet"><a href="#" id="uitlog">Ander account gebruiken</a></p>`);
+          ik.viaTelefoon
+            ? "Deze telefoon is gekoppeld, maar je account staat (nog) niet aan. Vraag de beheerder om je aan te zetten."
+            : `Je bent ingelogd als <b>${esc(user.email)}</b>, maar dit adres staat nog niet op de lijst van werknemers. Vraag de beheerder om je toe te voegen.`,
+          `<button class="knop knop-licht" id="opnieuw">Opnieuw proberen</button>${ik.viaTelefoon ? "" : `<p class="voet"><a href="#" id="uitlog">Ander account gebruiken</a></p>`}`);
       } else {
-        await klokScherm(w.data());
+        await klokScherm(ik, code && eerste ? `✓ Deze telefoon is gekoppeld aan ${esc(ik.naam)}` : "");
       }
     } catch (e) {
       bericht("Er ging iets mis", esc(e?.message || e), `<button class="knop knop-licht" id="opnieuw">Opnieuw proberen</button>`);
     }
+    eerste = false;
     el.querySelector("#opnieuw")?.addEventListener("click", () => location.reload());
     el.querySelector("#uitlog")?.addEventListener("click", (e) => { e.preventDefault(); uitloggen(); });
   });

@@ -3,11 +3,11 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/fireba
 import {
   getAuth, connectAuthEmulator, onAuthStateChanged, signOut,
   GoogleAuthProvider, OAuthProvider, signInWithPopup,
-  sendSignInLinkToEmail, isSignInWithEmailLink, signInWithEmailLink,
+  sendSignInLinkToEmail, isSignInWithEmailLink, signInWithEmailLink, signInAnonymously,
 } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
 import {
   getFirestore, connectFirestoreEmulator, collection, doc, getDoc, getDocs,
-  addDoc, setDoc, updateDoc, deleteDoc, query, where, serverTimestamp, Timestamp,
+  addDoc, setDoc, updateDoc, deleteDoc, query, where, serverTimestamp, Timestamp, writeBatch,
 } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
 import { firebaseConfig } from "./config.js";
 
@@ -28,7 +28,7 @@ if (emulator) {
 
 export {
   onAuthStateChanged, signOut, GoogleAuthProvider, OAuthProvider, signInWithPopup,
-  sendSignInLinkToEmail, isSignInWithEmailLink, signInWithEmailLink,
+  sendSignInLinkToEmail, isSignInWithEmailLink, signInWithEmailLink, signInAnonymously,
   collection, doc, getDoc, getDocs, addDoc, setDoc, updateDoc, deleteDoc,
-  query, where, serverTimestamp, Timestamp,
+  query, where, serverTimestamp, Timestamp, writeBatch,
 };

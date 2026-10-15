@@ -14,14 +14,14 @@ export const firebaseConfig = {
 
 export const BEDRIJFSNAAM = "POD Logistics";
 
-// Inloggen met Microsoft (werkaccounts van jullie eigen organisatie).
-// Vul de "Directory (tenant) ID" uit de Azure-appregistratie in, of laat null
-// om de Microsoft-knop te verbergen. Zie HANDLEIDING.md, stap 4.
-export const MICROSOFT_TENANT = null;
+// Inloggen met Microsoft. De Azure-app "Klok-app" is geregistreerd voor persoonlijke
+// Microsoft-accounts (Outlook), daarom "consumers". Voor werkaccounts van één organisatie
+// vul je hier de "Directory (tenant) ID" in. null = Microsoft-knop verbergen.
+export const MICROSOFT_TENANT = "consumers";
 
 // Inloggen via een link per e-mail. Werkt voor elk e-mailadres, maar het
 // gratis Firebase-abonnement verstuurt maximaal 5 van deze mails per dag.
-export const EMAIL_LINK_LOGIN = true;
+export const EMAIL_LINK_LOGIN = false;
 
 // Optioneel: alleen klokken binnen een straal rond kantoor (locatiecheck).
 // null = uit. Voorbeeld: { lat: 51.8853, lng: 4.3108, straalMeter: 250 }

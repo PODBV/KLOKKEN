@@ -13,7 +13,7 @@ const DAGEN = ["zo", "ma", "di", "wo", "do", "vr", "za"];
 const MAANDEN = ["jan", "feb", "mrt", "apr", "mei", "jun", "jul", "aug", "sep", "okt", "nov", "dec"];
 
 const nlDatum = (d) => `${d.slice(8)}-${d.slice(5, 7)}-${d.slice(0, 4)}`;
-const staat = { tab: "uren", werknemers: [], beheerders: new Set(), regs: [], van: null, tot: null };
+const staat = { tab: "uren", werknemers: [], beheerders: new Set(), apparaten: [], regs: [], van: null, tot: null, koppel: null };
 
 // ---------- gegevens ----------
 function standaardPeriode() {
@@ -24,9 +24,32 @@ function standaardPeriode() {
 }
 
 async function laadWerknemers() {
-  const [w, b] = await Promise.all([getDocs(collection(db, "werknemers")), getDocs(collection(db, "beheerders"))]);
+  const [w, b, a] = await Promise.all([getDocs(collection(db, "werknemers")), getDocs(collection(db, "beheerders")), getDocs(collection(db, "apparaten"))]);
   staat.werknemers = w.docs.map((d) => ({ email: d.id, ...d.data() })).sort((a, b) => a.naam.localeCompare(b.naam));
   staat.beheerders = new Set(b.docs.map((d) => d.id));
+  staat.apparaten = a.docs.map((d) => ({ uid: d.id, ...d.data() }));
+}
+
+const klokUrl = () => new URL("index.html", location.href.split("?")[0].split("#")[0]).href;
+
+function qrSvg(tekst) {
+  if (!window.qrcode) return "<p>QR-module kon niet laden.</p>";
+  const q = qrcode(0, "M"); q.addData(tekst); q.make();
+  return q.createSvgTag({ cellSize: 8, margin: 2, scalable: true });
+}
+
+/** Maakt een eenmalige, 7 dagen geldige koppelcode voor een werknemer. */
+async function maakKoppelcode(w) {
+  const bytes = crypto.getRandomValues(new Uint8Array(18));
+  const code = btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  await setDoc(doc(db, "koppelcodes", code), { email: w.email, naam: w.naam, gebruikt: false, aangemaakt: Timestamp.now(), door: mijnEmail() });
+  return `${klokUrl()}?code=${code}`;
+}
+
+/** Sleutel voor een werknemer zonder e-mailadres: naam in kleine letters plus een willekeurig stukje. */
+function sleutelZonderEmail(naam) {
+  const basis = naam.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  return `${basis || "werknemer"}-${Math.random().toString(36).slice(2, 6)}`;
 }
 
 async function laadRegistraties() {
@@ -77,7 +100,13 @@ function kader() {
         .map(([k, t]) => `<button class="tab ${staat.tab === k ? "actief" : ""}" data-tab="${k}">${t}</button>`).join("")}
     </nav>
     <div id="inhoud"></div>`;
-  el.querySelectorAll(".tab").forEach((b) => b.onclick = () => { staat.tab = b.dataset.tab; toon(); });
+  el.querySelectorAll(".tab").forEach((b) => b.onclick = async () => {
+    staat.tab = b.dataset.tab; staat.koppel = null;
+    // Steeds de nieuwste gegevens tonen.
+    if (staat.tab === "uren" || staat.tab === "registraties") await laadRegistraties();
+    if (staat.tab === "werknemers") await laadWerknemers();
+    toon();
+  });
 }
 
 function periodeKeuze() {
@@ -226,37 +255,41 @@ function toonRegistraties(box) {
 }
 
 function toonWerknemers(box) {
+  const telefoons = (email) => staat.apparaten.filter((a) => a.email === email).length;
   box.innerHTML = `
     <div class="kaart">
       <h2>Werknemer toevoegen</h2>
-      <p class="klein">Gebruik het e-mailadres waarmee de werknemer inlogt (Google-, Microsoft- of ander adres).</p>
       <form class="rij" id="nieuw">
         <label>Naam <input id="n-naam" required placeholder="Jan de Vries"></label>
-        <label>E-mailadres <input id="n-email" type="email" required placeholder="jan@gmail.com"></label>
+        <label>E-mailadres (optioneel) <input id="n-email" type="email" placeholder="alleen voor inloggen met account"></label>
         <button class="knop knop-blauw knop-klein" type="submit">Toevoegen</button>
       </form>
+      <p class="klein">Daarna klik je bij de werknemer op <b>Koppel-QR</b>. Die scant de werknemer één keer met zijn eigen telefoon; daarna herkent de app hem automatisch.</p>
       <p class="melding" id="n-melding"></p>
     </div>
     <div class="kaart">
       <h2>Werknemers (${staat.werknemers.filter((w) => w.actief).length} actief)</h2>
       <div class="tabel-wrap"><table>
-        <thead><tr><th>Naam</th><th>E-mailadres</th><th>Mag klokken</th><th>Beheerder</th></tr></thead>
+        <thead><tr><th>Naam</th><th>E-mailadres</th><th>Telefoon</th><th>Mag klokken</th><th>Beheerder</th></tr></thead>
         <tbody>${staat.werknemers.map((w) => `<tr>
-          <td>${esc(w.naam)}</td><td>${esc(w.email)}</td>
+          <td>${esc(w.naam)}</td><td>${w.email.includes("@") ? esc(w.email) : "–"}</td>
+          <td>${telefoons(w.email) ? `✓ gekoppeld${telefoons(w.email) > 1 ? ` (${telefoons(w.email)})` : ""} · <button class="link-knop" data-ontkoppel="${esc(w.email)}">ontkoppelen</button> · ` : ""}
+              <button class="link-knop" style="color:var(--blauw)" data-koppel="${esc(w.email)}">Koppel-QR</button></td>
           <td><input type="checkbox" data-actief="${esc(w.email)}" ${w.actief ? "checked" : ""}></td>
-          <td><input type="checkbox" data-beheer="${esc(w.email)}" ${staat.beheerders.has(w.email) ? "checked" : ""} ${w.email === mijnEmail() ? "disabled" : ""}></td></tr>`).join("")
-          || `<tr><td colspan="4">Nog geen werknemers.</td></tr>`}</tbody></table></div>
-      <p class="klein">Gaat iemand uit dienst? Zet "Mag klokken" uit. De uren blijven bewaard.</p>
+          <td>${w.email.includes("@") ? `<input type="checkbox" data-beheer="${esc(w.email)}" ${staat.beheerders.has(w.email) ? "checked" : ""} ${w.email === mijnEmail() ? "disabled" : ""}>` : ""}</td></tr>`).join("")
+          || `<tr><td colspan="5">Nog geen werknemers.</td></tr>`}</tbody></table></div>
+      <p class="klein">Gaat iemand uit dienst? Zet "Mag klokken" uit. De uren blijven bewaard. Nieuwe telefoon? Ontkoppel de oude en maak een nieuwe Koppel-QR.</p>
     </div>`;
   box.querySelector("#nieuw").onsubmit = async (ev) => {
     ev.preventDefault();
+    const melding = box.querySelector("#n-melding");
     const naam = box.querySelector("#n-naam").value.trim();
-    const email = box.querySelector("#n-email").value.trim().toLowerCase();
-    if (staat.werknemers.some((w) => w.email === email)) { box.querySelector("#n-melding").textContent = "Dit e-mailadres staat er al in."; return; }
+    const email = box.querySelector("#n-email").value.trim().toLowerCase() || sleutelZonderEmail(naam);
+    if (staat.werknemers.some((w) => w.email === email)) { melding.textContent = "Dit e-mailadres staat er al in."; return; }
     try {
       await setDoc(doc(db, "werknemers", email), { naam, actief: true });
       await laadWerknemers(); toon();
-    } catch (e) { box.querySelector("#n-melding").textContent = e.message; }
+    } catch (e) { melding.textContent = e.message; }
   };
   box.querySelectorAll("[data-actief]").forEach((c) => c.onchange = async () => {
     await updateDoc(doc(db, "werknemers", c.dataset.actief), { actief: c.checked });
@@ -267,20 +300,50 @@ function toonWerknemers(box) {
     if (c.checked) await setDoc(ref, { sinds: Timestamp.now() }); else await deleteDoc(ref);
     await laadWerknemers(); toon();
   });
+  box.querySelectorAll("[data-koppel]").forEach((b) => b.onclick = async () => {
+    const w = staat.werknemers.find((x) => x.email === b.dataset.koppel);
+    try {
+      staat.koppel = { naam: w.naam, url: await maakKoppelcode(w) };
+      toon();
+    } catch (e) { box.querySelector("#n-melding").textContent = e.message; }
+  });
+  box.querySelectorAll("[data-ontkoppel]").forEach((b) => b.onclick = async () => {
+    if (!confirm("Telefoon(s) van deze werknemer ontkoppelen? Daarna kan er niet meer mee geklokt worden.")) return;
+    await Promise.all(staat.apparaten.filter((a) => a.email === b.dataset.ontkoppel).map((a) => deleteDoc(doc(db, "apparaten", a.uid))));
+    await laadWerknemers(); toon();
+  });
+}
+
+function toonKoppel(box) {
+  const k = staat.koppel;
+  box.innerHTML = `
+    <div class="kaart" id="qr-print">
+      <h1>Koppel-QR voor ${esc(k.naam)}</h1>
+      <p class="sub">Scan deze code één keer met je <b>eigen telefoon</b> (gewone camera-app).<br>Daarna herkent de app je automatisch bij de QR-code bij de deur.</p>
+      ${qrSvg(k.url)}
+      <p class="klein">Eenmalig te gebruiken en 7 dagen geldig. Persoonlijk: niet doorsturen.</p>
+      <div class="rij geen-print" style="justify-content:center">
+        <button class="knop knop-blauw knop-klein" id="print">Printen</button>
+        <button class="knop knop-licht knop-klein" id="kopieer">Link kopiëren (om te appen)</button>
+        <button class="knop knop-licht knop-klein" id="terug">Terug</button>
+      </div>
+      <p class="melding geen-print" id="k-melding"></p>
+    </div>`;
+  box.querySelector("#print").onclick = () => window.print();
+  box.querySelector("#terug").onclick = async () => { staat.koppel = null; await laadWerknemers(); toon(); };
+  box.querySelector("#kopieer").onclick = async () => {
+    try { await navigator.clipboard.writeText(k.url); box.querySelector("#k-melding").textContent = "Link gekopieerd."; }
+    catch { prompt("Kopieer deze link:", k.url); }
+  };
 }
 
 function toonQr(box) {
-  const url = new URL("index.html", location.href.split("?")[0].split("#")[0]).href;
-  let svg = "<p>QR-module kon niet laden.</p>";
-  if (window.qrcode) {
-    const q = qrcode(0, "M"); q.addData(url); q.make();
-    svg = q.createSvgTag({ cellSize: 8, margin: 2, scalable: true });
-  }
+  const url = klokUrl();
   box.innerHTML = `
     <div class="kaart" id="qr-print">
       <h1>Scan om in of uit te klokken</h1>
       <p class="sub">${esc(BEDRIJFSNAAM)}</p>
-      ${svg}
+      ${qrSvg(url)}
       <p class="klein">${esc(url)}</p>
       <button class="knop knop-blauw geen-print" id="print" style="max-width:300px;margin:16px auto 0">Printen</button>
     </div>`;
@@ -290,6 +353,7 @@ function toonQr(box) {
 function toon() {
   kader();
   const box = el.querySelector("#inhoud");
+  if (staat.koppel) return toonKoppel(box);
   ({ uren: toonUren, registraties: toonRegistraties, werknemers: toonWerknemers, qr: toonQr })[staat.tab](box);
 }
 

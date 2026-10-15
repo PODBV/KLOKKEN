@@ -1,6 +1,6 @@
 # Klok-app POD Logistics: installatie
 
-Werknemers scannen de QR-code bij de deur met hun eigen telefoon. De eerste keer loggen ze in met Google, Microsoft of een link per e-mail. Daarna herkent de app ze meteen en tikken ze op één grote knop: **Inklokken** of **Uitklokken**. Jij ziet de uren per dag, week en maand op de beheerpagina en downloadt ze als Excel.
+Werknemers scannen de QR-code bij de deur met hun eigen telefoon. Hun telefoon is één keer gekoppeld met een persoonlijke koppel-QR van de beheerder, zonder account of e-mail. Daarna herkent de app ze meteen en tikken ze op één grote knop: **Inklokken** of **Uitklokken**. Jij ziet de uren per dag, week en maand op de beheerpagina en downloadt ze als Excel.
 
 Benodigd: een Google-account (voor Firebase), een GitHub-account en ongeveer 30 minuten. Kosten: €0 voor 30 werknemers.
 
@@ -27,13 +27,12 @@ Benodigd: een Google-account (voor Firebase), een GitHub-account en ongeveer 30 
 
 **Build > Authentication > Aan de slag > Inlogmethode**:
 
-1. **Google**: inschakelen, je e-mailadres als ondersteuningsadres, en opslaan.
-2. **E-mailadres/wachtwoord**: inschakelen, plus de schakelaar **E-maillink (inloggen zonder wachtwoord)**, en opslaan.
-   Let op: het gratis abonnement verstuurt maximaal **5 inlogmails per dag**. Laat werknemers dus bij voorkeur met Google of Microsoft inloggen.
+1. **Anonymous** (anoniem): inschakelen en opslaan. Dit gebruiken de telefoons van werknemers na het koppelen met hun persoonlijke QR-code. Werknemers hebben dus geen account of e-mail nodig.
+2. **Google**: inschakelen, je e-mailadres als ondersteuningsadres, en opslaan. Dit is voor de beheerder(s).
 
-## Stap 4. Inloggen met Microsoft (voor werknemers met een Microsoft-werkaccount)
+## Stap 4. Inloggen met Microsoft (optioneel)
 
-Sla deze stap over als iedereen met Google of e-maillink inlogt.
+Niet nodig: werknemers klokken via hun gekoppelde telefoon. Alleen als een beheerder liever met zijn Microsoft-werkaccount inlogt.
 
 1. Ga in Firebase naar **Authentication > Inlogmethode > Nieuwe provider > Microsoft**. Kopieer de **callback-URL** (`https://…firebaseapp.com/__/auth/handler`).
 2. Ga naar https://portal.azure.com > **Microsoft Entra ID > App-registraties > Nieuwe registratie**.
@@ -67,13 +66,17 @@ Firebase: **Authentication > Instellingen > Geautoriseerde domeinen > Domein toe
 
 ## Stap 8. In gebruik nemen
 
-1. Open `https://<jouw-github-naam>.github.io/klok/beheer.html` en log in met het adres uit stap 2.
-2. **Werknemers**: voeg iedere werknemer toe met naam en **het e-mailadres waarmee hij of zij inlogt** (Gmail, Microsoft-werkadres, enz.).
-3. **QR-code**: klik **Printen** en hang de QR-code bij de deur.
-4. Laat iedere werknemer één keer scannen en inloggen. Vanaf dan:
-   scannen, de app zegt "Hoi Fatima", en één tik op Inklokken of Uitklokken.
+1. Open `https://<jouw-github-naam>.github.io/<repository>/beheer.html` en log in met Google, met het adres uit stap 2.
+2. **Werknemers**: voeg iedere werknemer toe. Een naam is genoeg; een e-mailadres is niet nodig.
+3. Klik bij de werknemer op **Koppel-QR**. Laat de werknemer die code één keer scannen met de gewone camera van zijn eigen telefoon, of stuur de link via **Link kopiëren** in een persoonlijk appje. De telefoon is dan gekoppeld ("Hoi Lois").
+4. **QR-code**: klik **Printen** en hang de QR-code bij de deur.
+5. Vanaf dan: QR-code bij de deur scannen, de app herkent de telefoon, en één tik op **Inklokken** of **Uitklokken**.
 
-Tip voor werknemers: scan met de gewone camera-app. Die opent de link in Safari (iPhone) of Chrome (Android), en daar blijft de login bewaard. Wie via een inlogmail inlogt, opent de link uit de mail in diezelfde browser.
+Goed om te weten:
+- Een koppel-QR werkt maar één keer en is 7 dagen geldig. Zo kan niemand anders er later mee koppelen.
+- Nieuwe telefoon, of browsergegevens gewist? Klik bij de werknemer op **ontkoppelen** en maak een nieuwe Koppel-QR.
+- iPhone wist websitegegevens als de site langer dan ongeveer 7 dagen niet is geopend (bijvoorbeeld na vakantie). Dan meldt de app "Telefoon nog niet gekoppeld" en maak je een nieuwe Koppel-QR.
+- Gebruik bij het scannen de gewone camera-app. Die opent Safari (iPhone) of Chrome (Android), waar de koppeling bewaard blijft.
 
 ---
 
@@ -87,9 +90,9 @@ Tip voor werknemers: scan met de gewone camera-app. Die opent de link in Safari 
 
 ## Hoe is het beveiligd?
 
-- Iedere werknemer logt in met een eigen account. De database accepteert alleen een klok **voor het eigen e-mailadres**, met **de tijd van de server** (niet die van de telefoon).
+- Iedere telefoon is via een eenmalige, persoonlijke koppel-QR aan één werknemer gekoppeld. De database accepteert alleen een klok **voor de werknemer van die telefoon**, met **de tijd van de server** (niet die van de telefoon).
 - Werknemers kunnen niets wijzigen of verwijderen en zien alleen hun eigen klokken.
-- Alleen e-mailadressen die jij bij Werknemers hebt toegevoegd en die op "Mag klokken" staan, kunnen klokken.
+- Alleen werknemers die op "Mag klokken" staan, kunnen klokken. Ontkoppelen of "Mag klokken" uitzetten werkt direct.
 - Optioneel: zet in `config.js` bij `KANTOOR` de coördinaten van het kantoor. Dan kan alleen geklokt worden binnen die straal. De app slaat alleen de afstand op, niet de locatie zelf. Deze check gebeurt op de telefoon, dus iemand met technische kennis kan hem omzeilen. Zie het als drempel, niet als waterdichte controle.
 
 ## Privacy (AVG)
@@ -98,4 +101,4 @@ Informeer werknemers dat hun werktijden en e-mailadres worden vastgelegd voor de
 
 ## Gratis limieten (Firebase Spark-abonnement)
 
-Per dag 50.000 keer lezen en 20.000 keer schrijven. Met 30 werknemers gebruik je daar minder dan 1% van. Alleen de inlogmails per e-maillink zijn beperkt tot 5 per dag.
+Per dag 50.000 keer lezen en 20.000 keer schrijven. Met 30 werknemers gebruik je daar minder dan 1% van.
