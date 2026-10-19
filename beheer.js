@@ -425,7 +425,7 @@ function toonQr(box) {
     <div class="kaart" id="qr-print">
       ${papierUrl ? `
         <h1>Scan om in of uit te klokken</h1>
-        <p class="sub">${esc(BEDRIJFSNAAM)} · open de camera van je telefoon</p>
+        <p class="sub" style="color:var(--tekst)">Open de camera van je telefoon</p>
         ${qrSvg(papierUrl)}
         <div class="rij geen-print" style="justify-content:center;margin-top:14px">
           <button class="knop knop-blauw knop-klein" id="print">Printen</button>
